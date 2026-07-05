@@ -1,13 +1,11 @@
-"""
-Multi-company job monitor.
+# Multi-company job monitor.
  
-Reads config.json for the list of companies to check. For each company,
-calls the connector matching its "ats" field, fetches current postings,
-compares against what was saved last run, and reports anything new.
+# Reads config.json for the list of companies to check. For each company,
+# calls the connector matching its "ats" field, fetches current postings,
+# compares against what was saved last run, and reports anything new.
  
-Usage:
-    python monitor.py
-"""
+# Usage:
+#     python monitor.py
  
 import json
 import os
@@ -25,15 +23,14 @@ def load_config():
  
  
 def matches_filters(job, filters):
-    """
-    Returns "match", "ambiguous", or "no_match".
+    # Returns "match", "ambiguous", or "no_match".
  
-    match      - location filter passes AND keyword filter passes
-    ambiguous  - location text doesn't clearly confirm or rule out a match
-                 (e.g. "2 Locations" instead of a named place) so it's
-                 surfaced separately rather than silently dropped
-    no_match   - clearly doesn't belong on either filter
-    """
+    # match      - location filter passes AND keyword filter passes
+    # ambiguous  - location text doesn't clearly confirm or rule out a match
+    #              (e.g. "2 Locations" instead of a named place) so it's
+    #              surfaced separately rather than silently dropped
+    # no_match   - clearly doesn't belong on either filter
+
     location_text = job.get("location", "").lower()
     title_text = job.get("title", "").lower()
  
@@ -46,8 +43,7 @@ def matches_filters(job, filters):
         location_ambiguous = False
     else:
         location_match = any(loc in location_text for loc in wanted_locations)
-        # Text like "2 Locations" or "Multiple Locations" doesn't name a
-        # place at all, so we can't confirm OR rule it out from title text.
+        # Text like "2 Locations" or "Multiple Locations" doesn't name a place at all, so we can't confirm OR rule it out from title text.
         location_ambiguous = (not location_match) and ("location" in location_text)
  
     keyword_match = (not wanted_keywords) or any(kw in title_text for kw in wanted_keywords)
@@ -60,10 +56,9 @@ def matches_filters(job, filters):
  
  
 def load_seen_jobs():
-    """
-    Structure: { "Company Name": ["job_id_1", "job_id_2", ...], ... }
-    Keyed by company so each company's history is tracked independently.
-    """
+    # Structure: { "Company Name": ["job_id_1", "job_id_2", ...], ... }
+    # Keyed by company so each company's history is tracked independently.
+
     if not os.path.exists(SEEN_JOBS_FILE):
         return {}
     with open(SEEN_JOBS_FILE, "r", encoding="utf-8") as f:
@@ -95,15 +90,12 @@ def main():
         try:
             raw_jobs = CONNECTORS[ats](company)
         except Exception as e:
-            # One company failing (site down, endpoint changed) shouldn't
-            # crash the whole run and block checking every other company.
+            # One company failing (site down, endpoint changed) shouldn't crash the whole run and block checking every other company.
             print(f"  [ERROR] Failed to fetch {name}: {e}")
             continue
  
         # Split fetched jobs into: relevant matches, ambiguous, and the rest.
-        # Only "match" and "ambiguous" jobs get saved to seen_jobs — anything
-        # clearly irrelevant (wrong location, wrong keyword) is dropped here
-        # so it never counts toward "new" and never needs to be tracked.
+        # Only "match" and "ambiguous" jobs get saved to seen_jobs
         current_jobs = []
         ambiguous_jobs = []
         for job in raw_jobs:
@@ -119,7 +111,7 @@ def main():
         new_jobs = [job for job in current_jobs if job["id"] not in previous_ids]
  
         if name not in seen_jobs:
-            print(f"  First run for {name} — saved {len(current_jobs)} matching postings as baseline "
+            print(f"  First run for {name} - saved {len(current_jobs)} matching postings as baseline "
                   f"(out of {len(raw_jobs)} total postings fetched).")
         elif new_jobs:
             print(f"  {len(new_jobs)} new matching posting(s):")
@@ -130,7 +122,7 @@ def main():
             print(f"  No new matching postings ({len(current_jobs)} match total, unchanged).")
  
         if ambiguous_jobs:
-            print(f"  {len(ambiguous_jobs)} posting(s) with unclear location — check manually:")
+            print(f"  {len(ambiguous_jobs)} posting(s) with unclear location - check manually:")
             for job in ambiguous_jobs:
                 print(f"   ? {job['title']} | {job['location']}")
                 all_ambiguous_jobs.append({**job, "company": name})

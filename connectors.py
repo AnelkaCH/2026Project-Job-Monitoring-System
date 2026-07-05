@@ -1,24 +1,23 @@
-"""
-One fetch function per ATS type. Every function returns a list of dicts
-in the SAME shape, regardless of which ATS it came from:
+# One fetch function per ATS type. Every function returns a list of dicts
+# in the SAME shape, regardless of which ATS it came from:
  
-    {
-        "id": <stable unique string>,
-        "title": <job title>,
-        "location": <location text>,
-        "posted": <posted date text, or "" if unavailable>,
-        "link": <full URL to the job posting>
-    }
+#     {
+#         "id": <stable unique string>,
+#         "title": <job title>,
+#         "location": <location text>,
+#         "posted": <posted date text, or "" if unavailable>,
+#         "link": <full URL to the job posting>
+#     }
  
-This is what lets monitor.py treat every company the same way, no matter
-which ATS it uses under the hood.
-"""
+# This is what lets monitor.py treat every company the same way, no matter
+# which ATS it uses under the hood.
+
  
 import requests
  
  
 def fetch_greenhouse(company):
-    """Greenhouse: single GET request, no pagination needed."""
+    #Greenhouse: single GET request, no pagination needed.
     slug = company["slug"]
     url = f"https://api.greenhouse.io/v1/boards/{slug}/jobs"
  
@@ -39,7 +38,7 @@ def fetch_greenhouse(company):
  
  
 def fetch_lever(company):
-    """Lever: single GET request, no pagination needed."""
+    #Lever: single GET request, no pagination needed.
     slug = company["slug"]
     url = f"https://api.lever.co/v0/postings/{slug}"
  
@@ -60,7 +59,7 @@ def fetch_lever(company):
  
  
 def fetch_ashby(company):
-    """Ashby: single GET request, no pagination needed."""
+    #Ashby: single GET request, no pagination needed.
     slug = company["slug"]
     url = f"https://api.ashbyhq.com/posting-api/job-board/{slug}"
  
@@ -80,10 +79,8 @@ def fetch_ashby(company):
     return jobs
  
 def fetch_smartrecruiters(company):
-    """
-    SmartRecruiters: public Posting API, GET, paginated via offset/limit,
-    confirmed no-auth-required for this specific endpoint per their docs.
-    """
+    # SmartRecruiters: public Posting API, GET, paginated via offset/limit,
+    # confirmed no-auth-required for this specific endpoint per their docs.
     company_id = company["company_id"]
     page_size = 100
     offset = 0
@@ -123,7 +120,7 @@ def fetch_smartrecruiters(company):
  
  
 def fetch_recruitee(company):
-    """Recruitee: single GET request, no pagination needed."""
+    #Recruitee: single GET request, no pagination needed.
     slug = company["slug"]
     url = f"https://{slug}.recruitee.com/api/offers/"
  
@@ -143,11 +140,7 @@ def fetch_recruitee(company):
     return jobs
 
 def fetch_workday(company):
-    """
-    Workday: POST request, paginated. Loops through offsets until
-    all postings are collected. This is the pattern proven working
-    on Ensign's endpoint.
-    """
+    # Workday: POST request, paginated. Loops through offsets until all postings are collected. 
     url = company["workday_url"]
     job_base_url = company.get("job_base_url", "")
     page_size = 20
@@ -194,8 +187,7 @@ def fetch_workday(company):
  
  
 # Maps the "ats" field in config.json to the right function above.
-# This is the whole trick that makes the system generic: monitor.py
-# just looks up this dict instead of having an if/elif per ATS.
+# This is the whole trick that makes the system generic: monitor.py just looks up this dict instead of having an if/elif per ATS.
 CONNECTORS = {
     "greenhouse": fetch_greenhouse,
     "lever": fetch_lever,
