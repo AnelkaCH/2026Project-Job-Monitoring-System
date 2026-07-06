@@ -11,6 +11,7 @@ import json
 import os
  
 from connectors import CONNECTORS
+from notifier import send_notification
  
 CONFIG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.json")
 SEEN_JOBS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "seen_jobs.json")
@@ -122,15 +123,16 @@ def main():
             elif result == "ambiguous":
                 ambiguous_jobs.append(job)
  
-        previous_ids = set(seen_jobs.get(name, []))
-        current_ids = {job["id"] for job in current_jobs}
+        previous_matched_ids = set(seen_jobs.get(name, {}).get("matched_ids", []))
+        previous_ambiguous_ids = set(seen_jobs.get(name, {}).get("ambiguous_ids", []))
  
-        new_jobs = [job for job in current_jobs if job["id"] not in previous_ids]
+        current_matched_ids = {job["id"] for job in current_jobs}
+        current_ambiguous_ids = {job["id"] for job in ambiguous_jobs}
  
-        if name not in seen_jobs:
-            print(f"  First run for {name} - saved {len(current_jobs)} matching postings as baseline "
-                  f"(out of {len(raw_jobs)} total postings fetched).")
-        elif new_jobs:
+        new_jobs = [job for job in current_jobs if job["id"] not in previous_matched_ids]
+        new_ambiguous_jobs = [job for job in ambiguous_jobs if job["id"] not in previous_ambiguous_ids]
+ 
+        if new_jobs:
             print(f"  {len(new_jobs)} new matching posting(s):")
             for job in new_jobs:
                 print(f"   - {job['title']} | {job['location']}")
@@ -138,13 +140,18 @@ def main():
         else:
             print(f"  No new matching postings ({len(current_jobs)} match total, unchanged).")
  
-        if ambiguous_jobs:
-            print(f"  {len(ambiguous_jobs)} posting(s) with unclear location/date - check manually:")
-            for job in ambiguous_jobs:
+        if new_ambiguous_jobs:
+            # Only report ambiguous postings not seen in a previous run - same
+            # dedup treatment as matches, so these don't re-appear every run.
+            print(f"  {len(new_ambiguous_jobs)} posting(s) with unclear location — check manually:")
+            for job in new_ambiguous_jobs:
                 print(f"   ? {job['title']} | {job['location']}")
                 all_ambiguous_jobs.append({**job, "company": name})
  
-        seen_jobs[name] = list(current_ids)
+        seen_jobs[name] = {
+            "matched_ids": list(current_matched_ids),
+            "ambiguous_ids": list(current_ambiguous_ids)
+        }
  
     save_seen_jobs(seen_jobs)
  
@@ -158,10 +165,12 @@ def main():
         print("SUMMARY: No new matching postings this run.")
  
     if all_ambiguous_jobs:
-        print(f"\n{len(all_ambiguous_jobs)} posting(s) need a manual look (unclear location/date):\n")
+        print(f"\n{len(all_ambiguous_jobs)} posting(s) need a manual look (unclear location):\n")
         for job in all_ambiguous_jobs:
             print(f"[{job['company']}] {job['title']} | {job['location']}")
             print(f"  {job['link']}\n")
+    
+    send_notification(all_new_jobs, all_ambiguous_jobs)
  
  
 if __name__ == "__main__":
