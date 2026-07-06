@@ -27,7 +27,17 @@ def days_ago_from_unix_ms(ms_value):
     except (ValueError, TypeError):
         return None
  
- 
+def calculate_sap_days_ago(posted_date):
+    # SAP SuccessFactors date format: DD/MM/YYYY
+    # Returns the number of days since the job was posted.
+    # Returns None if the date is invalid.
+    try:
+        posted = datetime.strptime(posted_date, "%d/%m/%Y").replace(tzinfo=timezone.utc)
+        today = datetime.now(timezone.utc)
+        return (today - posted).days
+    except (ValueError, TypeError):
+        return None
+
 def days_ago_from_workday_text(text):
     # Workday's postedOn field is relative text: "Posted 2 Days Ago",
     # "Posted Today", or "Posted 30+ Days Ago". That last one only gives a

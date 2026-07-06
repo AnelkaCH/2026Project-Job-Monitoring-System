@@ -43,7 +43,7 @@ Yes, with a few caveats:
 | Workable | ✅ working | Public, endpoint confirmed, connector not yet written |
 | Personio | ✅ working | Public (XML or JSON feed), connector not yet written |
 | Oracle Recruiting Cloud | ❓ under investigation | No standard public API; feasibility being checked per company |
-| SAP SuccessFactors | ❓ under investigation | No standard public API; feasibility being checked per company |
+| SAP SuccessFactors | ✅ working | feasibility being checked per company |
 | Taleo | ❓ under investigation | Likely no usable feed for most tenants; low priority |
 | Custom in-house portals | ❌ not supported generically | Would need one-off handler per company; not yet built |
 
@@ -52,7 +52,7 @@ Yes, with a few caveats:
 Every company I add gets classified before any connector is written:
 
 - **Tier 1** = documented public API, no auth, stable URL pattern (Greenhouse, Lever, Ashby, SmartRecruiters, Recruitee, Workable)
-- **Tier 2** = no documented API, but the company's own careers page calls a JSON endpoint with no login required (Workday)
+- **Tier 2** = no documented API, but the company's own careers page calls a JSON endpoint with no login required (Workday, SAP SuccessFactors, some custom)
 - **Tier 3** = no accessible JSON feed at all, or the endpoint sits behind bot-detection / login. Not automated and checked manually instead.
 
 ## Setup

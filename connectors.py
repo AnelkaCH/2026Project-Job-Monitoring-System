@@ -14,7 +14,7 @@
 # which ATS it uses under the hood.
 
 import requests
-from date_utils import days_ago_from_iso, days_ago_from_unix_ms, days_ago_from_workday_text
+from date_utils import calculate_sap_days_ago, days_ago_from_iso, days_ago_from_unix_ms, days_ago_from_workday_text
 
 
 def fetch_greenhouse(company):
@@ -277,6 +277,81 @@ def fetch_workday(company):
         })
     return jobs
 
+def fetch_sap(company):
+    # SAP SuccessFactors Recruiting
+    # Public JSON endpoint, page-based pagination.
+
+    url = company["sap_url"]
+    locale = company.get("locale", "en_GB")
+    job_base_url = company.get("job_base_url", "")
+
+    page = 0
+    all_jobs = []
+
+    while True:
+        body = {
+            "locale": locale,
+            "pageNumber": page,
+            "sortBy": "",
+            "keywords": "",
+            "location": "",
+            "facetFilters": {},
+            "brand": "",
+            "skills": [],
+            "categoryId": 0,
+            "alertId": "",
+            "rcmCandidateId": ""
+        }
+
+        response = requests.post(
+            url,
+            headers={"Content-Type": "application/json"},
+            json=body,
+            timeout=15
+        )
+        response.raise_for_status()
+        data = response.json()
+
+        postings = data.get("jobSearchResult", [])
+
+        if not postings:
+            break
+
+        all_jobs.extend(postings)
+
+        page += 1
+
+    jobs = []
+
+    for item in all_jobs:
+        job = item.get("response", {})
+
+        title = job.get("unifiedStandardTitle") or job.get("title") or "Untitled"
+
+        location = ", ".join(job.get("jobLocationCountry", []))
+        location = location.replace("<br/>", "").strip()
+
+        job_id = str(job.get("id", ""))
+
+        slug = job.get("urlTitle") or job.get("unifiedUrlTitle") or ""
+
+        posted = job.get("unifiedStandardStart", "")
+        posted_days_ago = calculate_sap_days_ago(posted)
+
+        if posted_days_ago is None or posted_days_ago > 30:
+            continue
+
+        jobs.append({
+            "id": job_id,
+            "title": title,
+            "location": location,
+            "posted": job.get("unifiedStandardStart", ""),
+            "posted": posted,
+            "posted_days_ago": posted_days_ago,
+            "link": f"{job_base_url}{slug}"
+        })
+
+    return jobs
 
 # Maps the "ats" field in config.json to the right function above.
 # This is the whole trick that makes the system generic: monitor.py
@@ -290,4 +365,5 @@ CONNECTORS = {
     "workable": fetch_workable,
     "personio": fetch_personio,
     "workday": fetch_workday,
+    "sap": fetch_sap,
 }

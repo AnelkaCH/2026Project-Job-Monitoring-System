@@ -1,4 +1,2 @@
 requests
 python-dotenv
-
-{"appId": "careers", "scopes": ["careers2"], "query": {bool: {must: []}}, "aggs": {,…}, "size": 30,…}
