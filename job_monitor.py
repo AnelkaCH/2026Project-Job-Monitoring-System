@@ -36,6 +36,7 @@ def matches_filters(job, filters):
  
     wanted_locations = [loc.lower() for loc in filters.get("locations", [])]
     wanted_keywords = [kw.lower() for kw in filters.get("keywords", [])]
+    max_age_days = filters.get("max_age_days")
  
     # No location filter configured -> treat every location as a pass
     if not wanted_locations:
@@ -48,11 +49,27 @@ def matches_filters(job, filters):
  
     keyword_match = (not wanted_keywords) or any(kw in title_text for kw in wanted_keywords)
  
-    if location_ambiguous and keyword_match:
+    age_days = job.get("posted_days_ago")
+    if max_age_days is None:
+        age_ok = True
+        age_ambiguous = False
+    elif age_days is None:
+        age_ok = False       # not clearly OK...
+        age_ambiguous = True  # ...but not clearly stale either, so flag it
+    else:
+        age_ok = age_days <= max_age_days
+        age_ambiguous = False
+
+    if not keyword_match:
+        return "no_match"
+    if location_match is False and not location_ambiguous:
+        return "no_match"
+    if age_ambiguous is False and age_ok is False:
+        return "no_match"
+ 
+    if location_ambiguous or age_ambiguous:
         return "ambiguous"
-    if location_match and keyword_match:
-        return "match"
-    return "no_match"
+    return "match"
  
  
 def load_seen_jobs():
@@ -122,7 +139,7 @@ def main():
             print(f"  No new matching postings ({len(current_jobs)} match total, unchanged).")
  
         if ambiguous_jobs:
-            print(f"  {len(ambiguous_jobs)} posting(s) with unclear location - check manually:")
+            print(f"  {len(ambiguous_jobs)} posting(s) with unclear location/date - check manually:")
             for job in ambiguous_jobs:
                 print(f"   ? {job['title']} | {job['location']}")
                 all_ambiguous_jobs.append({**job, "company": name})
@@ -141,7 +158,7 @@ def main():
         print("SUMMARY: No new matching postings this run.")
  
     if all_ambiguous_jobs:
-        print(f"\n{len(all_ambiguous_jobs)} posting(s) need a manual look (unclear location):\n")
+        print(f"\n{len(all_ambiguous_jobs)} posting(s) need a manual look (unclear location/date):\n")
         for job in all_ambiguous_jobs:
             print(f"[{job['company']}] {job['title']} | {job['location']}")
             print(f"  {job['link']}\n")

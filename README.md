@@ -40,8 +40,8 @@ Yes, with a few caveats:
 | SmartRecruiters | ✅ working | GET, paginated via offset/limit |
 | Recruitee | ✅ working | Single GET, no pagination |
 | Workday | ✅ working | POST, paginated, per-company endpoint discovery required |
-| Workable | 🔜 planned | Public, endpoint confirmed, connector not yet written |
-| Personio | 🔜 planned | Public (XML or JSON feed), connector not yet written |
+| Workable | ✅ working | Public, endpoint confirmed, connector not yet written |
+| Personio | ✅ working | Public (XML or JSON feed), connector not yet written |
 | Oracle Recruiting Cloud | ❓ under investigation | No standard public API; feasibility being checked per company |
 | SAP SuccessFactors | ❓ under investigation | No standard public API; feasibility being checked per company |
 | Taleo | ❓ under investigation | Likely no usable feed for most tenants; low priority |
@@ -78,7 +78,7 @@ First run establishes a baseline (saved to `seen_jobs.json`). Every run after th
 - [x] Tier 2 connector: Workday
 - [x] Location + keyword filtering
 - [x] Per-company error isolation (one broken endpoint doesn't stop the whole run)
-- [ ] Workable and Personio connectors
+- [x] Workable and Personio connectors
 - [ ] Investigate Oracle Recruiting Cloud / SAP SuccessFactors feasibility per company
 - [ ] Scheduling via GitHub Actions (currently run manually)
 - [ ] Notifications (email / Discord / Telegram) instead of console output only
