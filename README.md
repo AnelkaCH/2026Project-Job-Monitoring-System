@@ -8,13 +8,13 @@ A self-hosted, zero-cost tool that watches specific companies' job boards and te
 
 I'm tracking internship and job openings at a specific list of Singapore-based companies across cybersecurity, cloud, and tech, as part of my own job search. Rather than checking each company's careers page by hand, this project automates that while staying within clear technical and ethical boundaries (see below).
 
-It's also a portfolio project: the goal isn't just "get notified about jobs," it's to demonstrate reasonable engineering judgment around API usage, rate limits, and respecting what platforms actually intend to expose publicly.
+It's also a portfolio project. I want to demonstrate reasonable engineering judgment around API usage, rate limits, and respecting what platforms actually intend to expose publicly.
 
 ## How it works, and why it's safe to use
 
 This project **only reads data that is already public and requires no login.** Specifically:
 
-- It calls documented or long-standing public JSON APIs that ATS platforms (Greenhouse, Lever, Ashby, SmartRecruiters, Recruitee) explicitly expose for this purpose, the same data their own careers pages display to any visitor.
+- It calls documented or long-standing public JSON APIs that ATS platforms (Greenhouse, Lever, Ashby, SmartRecruiters, Recruitee, Workable) explicitly expose for this purpose, the same data their own careers pages display to any visitor.
 - For platforms without a documented public API (like Workday), it uses the same JSON endpoint the company's own careers page calls in the visitor's browser, nothing hidden, nothing requiring a login or session.
 - It does **not** scrape rendered HTML, log into any account, bypass CAPTCHAs, or get around any bot-detection or access control. If a target doesn't offer a clean, unauthenticated JSON response, it's simply not added, meaning no workarounds are attempted.
 - It's read-only. It never submits applications, creates accounts, or writes anything back to any platform.
@@ -51,8 +51,8 @@ Yes, with a few caveats:
 
 Every company I add gets classified before any connector is written:
 
-- **Tier 1** = documented public API, no auth, stable URL pattern (Greenhouse, Lever, Ashby, SmartRecruiters, Recruitee, Workable, Personio)
-- **Tier 2** = no documented API, but the company's own careers page calls a JSON endpoint with no login required (Workday, sometimes Oracle Recruiting Cloud / SuccessFactors)
+- **Tier 1** = documented public API, no auth, stable URL pattern (Greenhouse, Lever, Ashby, SmartRecruiters, Recruitee, Workable)
+- **Tier 2** = no documented API, but the company's own careers page calls a JSON endpoint with no login required (Workday)
 - **Tier 3** = no accessible JSON feed at all, or the endpoint sits behind bot-detection / login. Not automated and checked manually instead.
 
 ## Setup
@@ -67,7 +67,7 @@ Edit `config.json`:
 
 Run it:
 ```bash
-python monitor.py
+python job_monitor.py
 ```
 
 First run establishes a baseline (saved to `seen_jobs.json`). Every run after that reports only new postings matching your filters.
@@ -81,7 +81,7 @@ First run establishes a baseline (saved to `seen_jobs.json`). Every run after th
 - [x] Workable and Personio connectors
 - [ ] Investigate Oracle Recruiting Cloud / SAP SuccessFactors feasibility per company
 - [ ] Scheduling via GitHub Actions (currently run manually)
-- [ ] Notifications (email / Discord / Telegram) instead of console output only
+- [x] Notifications (email / Discord / Telegram) instead of console output only
 - [ ] Ghost-job / stale-posting detection
 - [ ] Possibly: match scoring instead of binary include/exclude filtering
 
