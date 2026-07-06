@@ -5,12 +5,13 @@
 # compares against what was saved last run, and reports anything new.
  
 # Usage:
-#     python monitor.py
+#     python job_monitor.py
  
 import json
 import os
  
 from connectors import CONNECTORS
+from custom_handlers import CUSTOM_HANDLERS
 from notifier import send_notification
  
 CONFIG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.json")
@@ -24,32 +25,36 @@ def load_config():
  
  
 def matches_filters(job, filters):
-    # Returns "match", "ambiguous", or "no_match".
+    # Returns "match", "ambiguous", or "no_match" = now checking THREE things:
+    # location, keywords, and age. All three must pass for "match".
+    # If keywords or location clearly fail -> no_match, full stop.
+    # If age can't be confirmed (e.g. Workday's "30+ Days Ago") but nothing
+    # else fails -> ambiguous, same treatment as an unclear location.
  
-    # match      - location filter passes AND keyword filter passes
-    # ambiguous  - location text doesn't clearly confirm or rule out a match
-    #              (e.g. "2 Locations" instead of a named place) so it's
-    #              surfaced separately rather than silently dropped
-    # no_match   - clearly doesn't belong on either filter
-
     location_text = job.get("location", "").lower()
     title_text = job.get("title", "").lower()
  
     wanted_locations = [loc.lower() for loc in filters.get("locations", [])]
     wanted_keywords = [kw.lower() for kw in filters.get("keywords", [])]
+    exclude_keywords = [kw.lower() for kw in filters.get("exclude_keywords", [])]
     max_age_days = filters.get("max_age_days")
  
-    # No location filter configured -> treat every location as a pass
+    # Exclude list wins over everything - if a title matches an excluded
+    # term (e.g. "HR Analyst" contains "analyst"), reject immediately,
+    # even if it would otherwise pass on a generic keyword match.
+    if any(kw in title_text for kw in exclude_keywords):
+        return "no_match"
+ 
     if not wanted_locations:
         location_match = True
         location_ambiguous = False
     else:
         location_match = any(loc in location_text for loc in wanted_locations)
-        # Text like "2 Locations" or "Multiple Locations" doesn't name a place at all, so we can't confirm OR rule it out from title text.
         location_ambiguous = (not location_match) and ("location" in location_text)
  
     keyword_match = (not wanted_keywords) or any(kw in title_text for kw in wanted_keywords)
  
+    # Age check: None means "can't confirm exact age" (e.g. Workday's 30+ case)
     age_days = job.get("posted_days_ago")
     if max_age_days is None:
         age_ok = True
@@ -60,7 +65,7 @@ def matches_filters(job, filters):
     else:
         age_ok = age_days <= max_age_days
         age_ambiguous = False
-
+ 
     if not keyword_match:
         return "no_match"
     if location_match is False and not location_ambiguous:
@@ -74,8 +79,9 @@ def matches_filters(job, filters):
  
  
 def load_seen_jobs():
-    # Structure: { "Company Name": ["job_id_1", "job_id_2", ...], ... }
-    # Keyed by company so each company's history is tracked independently.
+    # Structure: { "Company Name": {"matched_ids": [...], "ambiguous_ids": [...]}, ... }
+    # Both lists are tracked so ambiguous postings only notify once too,
+    # instead of re-appearing in every single run's email forever.
 
     if not os.path.exists(SEEN_JOBS_FILE):
         return {}
@@ -99,21 +105,32 @@ def main():
         name = company["name"]
         ats = company["ats"]
  
-        if ats not in CONNECTORS:
+        if ats == "custom":
+            handler_name = company.get("handler")
+            fetch_function = CUSTOM_HANDLERS.get(handler_name)
+            if fetch_function is None:
+                print(f"[SKIP] {name}: no custom handler named '{handler_name}'")
+                continue
+        elif ats in CONNECTORS:
+            fetch_function = CONNECTORS[ats]
+        else:
             print(f"[SKIP] {name}: unknown ATS type '{ats}'")
             continue
  
         print(f"Checking {name} ({ats})...")
  
         try:
-            raw_jobs = CONNECTORS[ats](company)
+            raw_jobs = fetch_function(company)
         except Exception as e:
-            # One company failing (site down, endpoint changed) shouldn't crash the whole run and block checking every other company.
+            # One company failing (site down, endpoint changed) shouldn't
+            # crash the whole run and block checking every other company.
             print(f"  [ERROR] Failed to fetch {name}: {e}")
             continue
  
         # Split fetched jobs into: relevant matches, ambiguous, and the rest.
-        # Only "match" and "ambiguous" jobs get saved to seen_jobs
+        # Only "match" and "ambiguous" jobs get saved to seen_jobs = anything
+        # clearly irrelevant (wrong location, wrong keyword) is dropped here
+        # so it never counts toward "new" and never needs to be tracked.
         current_jobs = []
         ambiguous_jobs = []
         for job in raw_jobs:
@@ -143,7 +160,7 @@ def main():
         if new_ambiguous_jobs:
             # Only report ambiguous postings not seen in a previous run - same
             # dedup treatment as matches, so these don't re-appear every run.
-            print(f"  {len(new_ambiguous_jobs)} posting(s) with unclear location — check manually:")
+            print(f"  {len(new_ambiguous_jobs)} posting(s) with unclear location/date. Please check manually:")
             for job in new_ambiguous_jobs:
                 print(f"   ? {job['title']} | {job['location']}")
                 all_ambiguous_jobs.append({**job, "company": name})
@@ -165,11 +182,11 @@ def main():
         print("SUMMARY: No new matching postings this run.")
  
     if all_ambiguous_jobs:
-        print(f"\n{len(all_ambiguous_jobs)} posting(s) need a manual look (unclear location):\n")
+        print(f"\n{len(all_ambiguous_jobs)} posting(s) need a manual look (unclear location/date):\n")
         for job in all_ambiguous_jobs:
             print(f"[{job['company']}] {job['title']} | {job['location']}")
             print(f"  {job['link']}\n")
-    
+ 
     send_notification(all_new_jobs, all_ambiguous_jobs)
  
  

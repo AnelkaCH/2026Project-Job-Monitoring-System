@@ -3,6 +3,10 @@
         "locations": [
         "ADD YOUR LOCATION(S) HERE"
         ],
+        "max_age_days": 10000000000,
+        "exclude_keywords": [
+        "ADD KEYWORDS HERE"
+        ],
         "keywords": [
         "ADD YOUR KEYWORD(S) HERE"
         ]
@@ -18,6 +22,11 @@
         "name": "ADD YOUR COMPANY NAME HERE",
         "ats": "ADD TIER 1 ATS NAME HERE",
         "slug": "ADD YOUR SLUG HERE"
+        },
+        {
+        "name": "ADD YOUR COMPANY NAME HERE",
+        "ats": "custom",
+        "handler": "ADD YOUR COMPANY NAME HERE"
         }
     ]
 }
