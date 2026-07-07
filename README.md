@@ -16,17 +16,17 @@ Most companies publish their openings through one of a handful of ATS platforms,
 
 ## ATS Coverage
 
-**Tier 1 — Full JSON API support**
+**Tier 1 = Full JSON API support**
 Greenhouse, Ashby, Lever, Workable, Personio, SmartRecruiters, Recruitee
 
 These platforms expose clean, public JSON endpoints for their careers pages. Connectors here are stable and reusable across any company using that ATS.
 
-**Tier 2 — Partial or non-standard support**
+**Tier 2 = Partial or non-standard support**
 Workday, SAP SuccessFactors, Custom
 
 These either require more complex request handling (pagination quirks, non-obvious endpoints, session tokens) or, in the case of "Custom," a bespoke handler for a company that doesn't run on a standard ATS. See [Custom Handlers](#custom-handlers) below for why this isn't public.
 
-**Tier 3 — Not currently supported**
+**Tier 3 = Not currently supported**
 Companies with no accessible JSON endpoint. These would require HTML scraping or browser automation, which is out of scope for now. Skipped on purpose.
 
 **On the roadmap**
