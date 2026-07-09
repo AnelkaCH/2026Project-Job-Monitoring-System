@@ -1,4 +1,4 @@
-# Job Monitor System
+# Job Monitoring System
 
 A self-hosted, zero-cost tool that watches specific companies' job boards and tells me when they post something new, instead of me manually checking a dozen careers pages every day.
 
