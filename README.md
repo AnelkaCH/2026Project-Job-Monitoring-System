@@ -4,17 +4,19 @@ A self-hosted, zero-cost tool that watches specific companies' job boards and te
 
 > **Status: early work in progress.** This is not a finished product. Connectors, filtering, and scheduling are all being built incrementally. Expect breaking changes, missing features, and rough edges. See [Roadmap](#roadmap) for what's actually done vs planned.
 
-## Why I built this
+## Version 1.0
+
+### Why I built this
 
 I'm tracking internship and job openings at a specific list of Singapore-based companies across cybersecurity, cloud, and tech, as part of my own job search. Rather than checking each company's careers page by hand, this project automates that while staying within clear technical and ethical boundaries (see below).
 
 It's also a portfolio project. I want to demonstrate reasonable engineering judgment around API usage, rate limits, and respecting what platforms actually intend to expose publicly.
 
-## Why this exists
+### Why this exists
 
 Most companies publish their openings through one of a handful of ATS platforms, many of which expose a structured JSON endpoint for their own careers page. Rather than scraping HTML per-company, this project builds a unified connector layer: one adapter per ATS, all normalized into the same job format, so adding a new company is usually just a config entry, not new code.
 
-## ATS Coverage
+### ATS Coverage
 
 **Tier 1 = Full JSON API support**
 Greenhouse, Ashby, Lever, Workable, Personio, SmartRecruiters, Recruitee
@@ -32,7 +34,7 @@ Companies with no accessible JSON endpoint. These would require HTML scraping or
 **On the roadmap**
 Oracle Recruiting Cloud (Fusion), and other ATS platforms as they come up.
 
-## Is this safe / legal?
+### Is this safe / legal?
 
 Some notes on how this is built to stay on the right side of that line, though I'm not a lawyer and this isn't legal advice:
 
@@ -43,14 +45,14 @@ Some notes on how this is built to stay on the right side of that line, though I
 - Nothing is redistributed or published. Job data is used privately for personal job hunting, not resold, republished, or aggregated into a public feed.
 - I don't plan to overwhelm the sites at all with a lot of requests. 
 
-## Is it OK to use / fork this?
+### Is it OK to use / fork this?
 
 Yes, with a few caveats:
 - This is provided as-is, for educational and personal use. No warranty, no guarantee any given connector still works by the time you read this (ATS platforms change endpoints without notice).
 - Don't point this at platforms requiring login/auth, and don't try to work around rate limits or bot-detection if you hit them. That's the line where "reading public data" turns into something else.
 - Company-specific config (Workday tenant URLs especially) will need to be rediscovered per company you add (see the Tiers section below).
 
-## Features
+### Features
 
 - Unified job data format across all ATS connectors
 - Tiered classification system for prioritizing relevant postings
@@ -58,15 +60,15 @@ Yes, with a few caveats:
 - Email notifications for new matches
 - Deduplication so the same posting isn't reported twice
 
-## Coming soon
+### Coming soon
 
 - Scheduler for automated periodic runs
 - Broader ATS coverage (Oracle Recruiting Cloud and others)
 - Refined filtering logic
 
-## Getting started
+### Getting started
 
-### Requirements
+#### Requirements
 
 Install dependencies:
 
@@ -74,7 +76,7 @@ Install dependencies:
 pip install -r requirement.txt
 ```
 
-### Configuration
+#### Configuration
 
 Copy the example env file and fill in your own values:
 
@@ -92,7 +94,7 @@ cp config.example.json config.json
 
 See [`config.example.json`](./config.example.json) for the format, including how a "custom" ATS entry references a handler from `custom_handler_template.py`.
 
-### Running it
+#### Running it
 
 ```bash
 python job_monitor.py
@@ -100,7 +102,7 @@ python job_monitor.py
 
 New matches get logged to `seen_jobs.json` and emailed if they pass the filters. Already-seen postings are skipped on future runs.
 
-## Custom Handlers
+### Custom Handlers
 
 Some companies don't run on a standard ATS and need a bespoke handler to pull their job data. These real handlers aren't included in this repo, since they're built against a specific company's internal endpoints and publishing that publicly isn't something I'm comfortable doing.
 
@@ -108,6 +110,6 @@ What's included instead is [`custom_handler_template.py`](./custom_handler_templ
 
 Every connector, custom or not, normalizes into the same shared job format, which is what lets the main pipeline treat all 10+ sources identically regardless of what's happening under the hood.
 
-## Status
+### Status
 
 Actively in development. This is a work in progress, built incrementally as I learn more about each ATS and refine the classification logic.
