@@ -55,10 +55,30 @@ def _ambiguous_row_html(job):
     """
  
  
-def build_email_html(new_jobs, ambiguous_jobs):
+def _flagged_row_html(company_name, streak):
+    # One warning row per company repeatedly skipped by the rate limiter.
+    # Amber/warning styling, distinct from both the green match cards and
+    # the neutral ambiguous rows, since this is an operational signal about
+    # the monitor itself, not a job posting.
+    return f"""
+    <div style="border-left:3px solid #f59e0b; padding:8px 12px; margin-bottom:6px;
+                background:#fffbeb;">
+        <span style="font-size:13px; color:#92400e;">
+            <strong>{company_name}</strong> — skipped {streak} cycles in a row
+        </span>
+    </div>
+    """
+
+
+def build_email_html(new_jobs, ambiguous_jobs, flagged_companies=None):
+    flagged_companies = flagged_companies or {}
     match_section = "".join(_match_card_html(job) for job in new_jobs)
     ambiguous_section = "".join(_ambiguous_row_html(job) for job in ambiguous_jobs)
- 
+    flagged_section = "".join(
+        _flagged_row_html(name, streak)
+        for name, streak in sorted(flagged_companies.items(), key=lambda x: -x[1])
+    )
+
     ambiguous_block = ""
     if ambiguous_jobs:
         ambiguous_block = f"""
@@ -70,45 +90,68 @@ def build_email_html(new_jobs, ambiguous_jobs):
             {ambiguous_section}
         </div>
         """
- 
+
+    flagged_block = ""
+    if flagged_companies:
+        flagged_block = f"""
+        <div style="margin-top:24px;">
+            <div style="font-size:13px; font-weight:600; color:#92400e;
+                        text-transform:uppercase; letter-spacing:0.05em; margin-bottom:8px;">
+                Repeatedly rate-limited ({len(flagged_companies)})
+            </div>
+            {flagged_section}
+        </div>
+        """
+
+    header_line = f"🎯 {len(new_jobs)} new job match{'es' if len(new_jobs) != 1 else ''}"
+    if not new_jobs and flagged_companies:
+        # Nothing new to celebrate, but there IS something worth opening the
+        # email for - lead with that instead of "0 new job matches".
+        header_line = f"⚠️ {len(flagged_companies)} compan{'y' if len(flagged_companies) == 1 else 'ies'} need attention"
+
     return f"""
     <div style="font-family:-apple-system, Segoe UI, Roboto, sans-serif; max-width:600px;
                 margin:0 auto; padding:20px;">
         <div style="font-size:20px; font-weight:700; color:#18181b; margin-bottom:4px;">
-            🎯 {len(new_jobs)} new job match{'es' if len(new_jobs) != 1 else ''}
+            {header_line}
         </div>
         <div style="font-size:14px; color:#71717a; margin-bottom:20px;">
             From your job monitor
         </div>
         {match_section}
         {ambiguous_block}
+        {flagged_block}
     </div>
     """
  
  
-def send_notification(new_jobs, ambiguous_jobs):
-    # Sends the email only if there's something to report at all — no email
-    # fires on a run with nothing new and nothing ambiguous, to avoid
-    # inbox noise on every scheduled run.
-    if not new_jobs and not ambiguous_jobs:
-        print("No new or ambiguous postings — skipping email.")
+def send_notification(new_jobs, ambiguous_jobs, flagged_companies=None):
+    # Sends the email if there's anything to report: new matches, ambiguous
+    # postings, OR a company repeatedly rate-limited. That last case matters
+    # on its own - if you don't know a company's been silently skipped for
+    # 3+ cycles, you might assume "no new jobs" when really "not being
+    # checked at all" - so it can't stay silent just because job counts are 0.
+    flagged_companies = flagged_companies or {}
+    if not new_jobs and not ambiguous_jobs and not flagged_companies:
+        print("No new postings, ambiguous postings, or flags — skipping email.")
         return
- 
+
     email_address = os.environ["EMAIL_ADDRESS"]
     email_password = os.environ["EMAIL_APP_PASSWORD"]
     recipient = os.environ["RECIPIENT_EMAIL"]
- 
+
     subject = f"🎯 {len(new_jobs)} new job match{'es' if len(new_jobs) != 1 else ''}" \
-              f"{f' + {len(ambiguous_jobs)} to check' if ambiguous_jobs else ''}"
- 
+              f"{f' + {len(ambiguous_jobs)} to check' if ambiguous_jobs else ''}" \
+              f"{f' + {len(flagged_companies)} flagged' if flagged_companies else ''}"
+
     message = MIMEMultipart("alternative")
     message["Subject"] = subject
     message["From"] = email_address
     message["To"] = recipient
-    message.attach(MIMEText(build_email_html(new_jobs, ambiguous_jobs), "html"))
- 
+    message.attach(MIMEText(build_email_html(new_jobs, ambiguous_jobs, flagged_companies), "html"))
+
     with smtplib.SMTP_SSL(SMTP_SERVER, SMTP_PORT) as server:
         server.login(email_address, email_password)
         server.sendmail(email_address, recipient, message.as_string())
- 
+
     print(f"Email sent: {subject}")

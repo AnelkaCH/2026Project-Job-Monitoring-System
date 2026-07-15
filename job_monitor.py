@@ -13,10 +13,12 @@ import os
 from connectors import CONNECTORS
 from custom_handlers import CUSTOM_HANDLERS
 from notifier import send_notification
+from skip_tracker import SkipTracker
  
 CONFIG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.json")
 SEEN_JOBS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "seen_jobs.json")
- 
+
+skip_tracker = SkipTracker()
  
 def load_config():
     with open(CONFIG_FILE, "r", encoding="utf-8") as f:
@@ -126,6 +128,17 @@ def main():
             # crash the whole run and block checking every other company.
             print(f"  [ERROR] Failed to fetch {name}: {e}")
             continue
+
+        if raw_jobs is None:
+            # Connector was rate-limited into exhaustion and skipped this
+            # company for the cycle (see connectors.py / rate_limiter.py).
+            # Continuing here is deliberate: it skips the seen_jobs[name]
+            # assignment below, so the company's last real baseline stays
+            # intact instead of being overwritten with empty lists. If we
+            # let this fall through, next cycle's dedup would think every
+            # existing posting for this company is "new" again.
+            print(f"  [SKIPPED] {name}: rate-limited this cycle, will retry next run.")
+            continue
  
         # Split fetched jobs into: relevant matches, ambiguous, and the rest.
         # Only "match" and "ambiguous" jobs get saved to seen_jobs = anything
@@ -186,8 +199,14 @@ def main():
         for job in all_ambiguous_jobs:
             print(f"[{job['company']}] {job['title']} | {job['location']}")
             print(f"  {job['link']}\n")
+
+    flagged_companies = skip_tracker.get_flagged()
+    if flagged_companies:
+        print(f"\n{len(flagged_companies)} company(ies) repeatedly rate-limited:\n")
+        for company_name, streak in sorted(flagged_companies.items(), key=lambda x: -x[1]):
+            print(f"  - {company_name}: skipped {streak} cycles in a row")
  
-    send_notification(all_new_jobs, all_ambiguous_jobs)
+    send_notification(all_new_jobs, all_ambiguous_jobs, flagged_companies)
  
  
 if __name__ == "__main__":

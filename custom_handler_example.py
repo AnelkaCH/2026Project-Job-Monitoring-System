@@ -15,8 +15,16 @@
 # 3. Register the function in CUSTOM_HANDLERS at the bottom.
 # 4. Set "ats": "custom" and "handler": "<name>" in config.json for that company.
  
-import requests
+import logging
+ 
 from date_utils import days_ago_from_iso
+from rate_limiter import RateLimiter, RateLimitExceeded
+from skip_tracker import SkipTracker
+ 
+logger = logging.getLogger(__name__)
+
+limiter = RateLimiter()
+skip_tracker = SkipTracker()
  
  
 def fetch_example_company(company):
@@ -25,6 +33,7 @@ def fetch_example_company(company):
  
     country_site = company.get("country_site", "sg-en")
     job_country = company.get("job_country", "Singapore")
+    name = company.get("name", "company_name")
     page_size = 12
     start_index = 0
     all_jobs_raw = []
@@ -40,8 +49,13 @@ def fetch_example_company(company):
             "countrySite": country_site,
         }
  
-        response = requests.get(url, params=request_params, timeout=15)
-        response.raise_for_status()
+        try:
+            response = limiter.get(url, platform="platform_name", company=name, timeout=15)
+            response.raise_for_status()
+        except RateLimitExceeded as exc:
+            streak = skip_tracker.record_skip(name)
+            logger.warning("Skipping %s this cycle: %s (streak: %d)", name, exc, streak)
+            return None
         data = response.json()
  
         postings = data.get("results", [])
@@ -53,6 +67,7 @@ def fetch_example_company(company):
         if start_index >= total or not postings:
             break
  
+    skip_tracker.record_success(name)
     # Normalize into the shared job format used across every connector,
     # regardless of ATS.
     jobs = []

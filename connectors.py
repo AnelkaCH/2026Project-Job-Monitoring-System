@@ -13,17 +13,31 @@
 # This is what lets monitor.py treat every company the same way, no matter
 # which ATS it uses under the hood.
 
-import requests
-from date_utils import calculate_sap_days_ago, days_ago_from_iso, days_ago_from_unix_ms, days_ago_from_workday_text
+import logging
 
+from date_utils import calculate_sap_days_ago, days_ago_from_iso, days_ago_from_unix_ms, days_ago_from_workday_text
+from rate_limiter import RateLimiter, RateLimitExceeded
+from skip_tracker import SkipTracker
+
+logger = logging.getLogger(__name__)
+limiter = RateLimiter()
+skip_tracker = SkipTracker()
 
 def fetch_greenhouse(company):
     # Greenhouse: single GET request, no pagination needed.
     slug = company["slug"]
+    name = company.get("name", slug)
     url = f"https://api.greenhouse.io/v1/boards/{slug}/jobs"
 
-    response = requests.get(url, timeout=15)
-    response.raise_for_status()
+    try:
+        response = limiter.get(url, platform="greenhouse", company=name, timeout=15)
+        response.raise_for_status()
+    except RateLimitExceeded as exc:
+        streak = skip_tracker.record_skip(name)
+        logger.warning("Skipping %s this cycle: %s (streak: %d)", name, exc, streak)
+        return None
+ 
+    skip_tracker.record_success(name)
     data = response.json()
 
     jobs = []
@@ -42,10 +56,18 @@ def fetch_greenhouse(company):
 def fetch_lever(company):
     # Lever: single GET request, no pagination needed.
     slug = company["slug"]
+    name = company.get("name", slug)
     url = f"https://api.lever.co/v0/postings/{slug}"
 
-    response = requests.get(url, timeout=15)
-    response.raise_for_status()
+    try:
+        response = limiter.get(url, platform="lever", company=name, timeout=15)
+        response.raise_for_status()
+    except RateLimitExceeded as exc:
+        streak = skip_tracker.record_skip(name)
+        logger.warning("Skipping %s this cycle: %s (streak: %d)", name, exc, streak)
+        return None
+ 
+    skip_tracker.record_success(name)
     data = response.json()
 
     jobs = []
@@ -64,10 +86,18 @@ def fetch_lever(company):
 def fetch_ashby(company):
     # Ashby: single GET request, no pagination needed.
     slug = company["slug"]
+    name = company.get("name", slug)
     url = f"https://api.ashbyhq.com/posting-api/job-board/{slug}"
 
-    response = requests.get(url, timeout=15)
-    response.raise_for_status()
+    try:
+        response = limiter.get(url, platform="ashby", company=name, timeout=15)
+        response.raise_for_status()
+    except RateLimitExceeded as exc:
+        streak = skip_tracker.record_skip(name)
+        logger.warning("Skipping %s this cycle: %s (streak: %d)", name, exc, streak)
+        return None
+    
+    skip_tracker.record_success(name)
     data = response.json()
 
     jobs = []
@@ -91,6 +121,7 @@ def fetch_smartrecruiters(company):
     # by the requested page_size, in case the server ever returns fewer
     # than asked for.
     slug = company["slug"]
+    name = company.get("name", slug)
     requested_page_size = 100
     offset = 0
     all_postings = []
@@ -98,8 +129,13 @@ def fetch_smartrecruiters(company):
     while True:
         url = (f"https://api.smartrecruiters.com/v1/companies/{slug}/postings"
                f"?offset={offset}&limit={requested_page_size}")
-        response = requests.get(url, timeout=15)
-        response.raise_for_status()
+        try:
+            response = limiter.get(url, platform="smartrecruiters", company=name, timeout=15)
+            response.raise_for_status()
+        except RateLimitExceeded as exc:
+            streak = skip_tracker.record_skip(name)
+            logger.warning("Skipping %s this cycle: %s (streak: %d)", name, exc, streak)
+            return None
         data = response.json()
 
         postings = data.get("content", [])
@@ -110,6 +146,8 @@ def fetch_smartrecruiters(company):
 
         if offset >= total_found or not postings:
             break
+
+    skip_tracker.record_success(name)
 
     jobs = []
     for job in all_postings:
@@ -132,10 +170,18 @@ def fetch_smartrecruiters(company):
 def fetch_recruitee(company):
     # Recruitee: single GET request, no pagination needed.
     slug = company["slug"]
+    name = company.get("name", slug)
     url = f"https://{slug}.recruitee.com/api/offers/"
 
-    response = requests.get(url, timeout=15)
-    response.raise_for_status()
+    try:
+        response = limiter.get(url, platform="recruitee", company=name, timeout=15)
+        response.raise_for_status()
+    except RateLimitExceeded as exc:
+        streak = skip_tracker.record_skip(name)
+        logger.warning("Skipping %s this cycle: %s (streak: %d)", name, exc, streak)
+        return None
+ 
+    skip_tracker.record_success(name)
     data = response.json()
 
     jobs = []
@@ -157,15 +203,23 @@ def fetch_workable(company):
     # in the next request's body is how you get the next page (confirmed
     # via DevTools against a real multi-page company).
     slug = company["slug"]
+    name = company.get("name", slug)
     url = f"https://apply.workable.com/api/v3/accounts/{slug}/jobs"
 
     all_results = []
     body = {"query": "", "department": [], "location": [], "workplace": [], "worktype": []}
 
     while True:
-        response = requests.post(url, headers={"Content-Type": "application/json"},
-                                  json=body, timeout=15)
-        response.raise_for_status()
+        try:
+            response = limiter.post(
+                url, platform="workable", company=name,
+                headers={"Content-Type": "application/json"}, json=body, timeout=15
+            )
+            response.raise_for_status()
+        except RateLimitExceeded as exc:
+            streak = skip_tracker.record_skip(name)
+            logger.warning("Skipping %s this cycle: %s (streak: %d)", name, exc, streak)
+            return None
         data = response.json()
 
         results = data.get("results", [])
@@ -175,6 +229,8 @@ def fetch_workable(company):
         if not next_page or not results:
             break
         body["token"] = next_page
+    
+    skip_tracker.record_success(name)
 
     jobs = []
     for job in all_results:
@@ -208,11 +264,19 @@ def fetch_personio(company):
     # a real response) - worth revisiting if a large company returns
     # suspiciously few results here.
     slug = company["slug"]
+    name = company.get("name", slug)
     domain = company.get("domain", "de")  # some tenants use .com instead of .de
     url = f"https://{slug}.jobs.personio.{domain}/search.json"
 
-    response = requests.get(url, timeout=15)
-    response.raise_for_status()
+    try:
+        response = limiter.get(url, platform="personio", company=name, timeout=15)
+        response.raise_for_status()
+    except RateLimitExceeded as exc:
+        streak = skip_tracker.record_skip(name)
+        logger.warning("Skipping %s this cycle: %s (streak: %d)", name, exc, streak)
+        return None
+ 
+    skip_tracker.record_success(name)
     data = response.json()
 
     jobs = []
@@ -234,6 +298,7 @@ def fetch_workday(company):
     # on Ensign's endpoint.
     url = company["workday_url"]
     job_base_url = company.get("job_base_url", "")
+    name = company.get("name", url)
     page_size = 20
     offset = 0
     raw_jobs = []
@@ -246,13 +311,16 @@ def fetch_workday(company):
             "searchText": ""
         }
 
-        response = requests.post(
-            url,
-            headers={"Content-Type": "application/json"},
-            json=body,
-            timeout=15
-        )
-        response.raise_for_status()
+        try:
+            response = limiter.post(
+                url, platform="workday", company=name,
+                headers={"Content-Type": "application/json"}, json=body, timeout=15
+            )
+            response.raise_for_status()
+        except RateLimitExceeded as exc:
+            streak = skip_tracker.record_skip(name)
+            logger.warning("Skipping %s this cycle: %s (streak: %d)", name, exc, streak)
+            return None
         data = response.json()
 
         postings = data.get("jobPostings", [])
@@ -264,6 +332,8 @@ def fetch_workday(company):
         if offset >= total or not postings:
             break
 
+    skip_tracker.record_success(name)
+    
     jobs = []
     for job in raw_jobs:
         external_path = job.get("externalPath", "")
@@ -284,6 +354,7 @@ def fetch_sap(company):
     url = company["sap_url"]
     locale = company.get("locale", "en_GB")
     job_base_url = company.get("job_base_url", "")
+    name = company.get("name", url)
 
     page = 0
     all_jobs = []
@@ -303,13 +374,16 @@ def fetch_sap(company):
             "rcmCandidateId": ""
         }
 
-        response = requests.post(
-            url,
-            headers={"Content-Type": "application/json"},
-            json=body,
-            timeout=15
-        )
-        response.raise_for_status()
+        try:
+            response = limiter.post(
+                url, platform="sap", company=name,
+                headers={"Content-Type": "application/json"}, json=body, timeout=15
+            )
+            response.raise_for_status()
+        except RateLimitExceeded as exc:
+            streak = skip_tracker.record_skip(name)
+            logger.warning("Skipping %s this cycle: %s (streak: %d)", name, exc, streak)
+            return None
         data = response.json()
 
         postings = data.get("jobSearchResult", [])
@@ -320,6 +394,8 @@ def fetch_sap(company):
         all_jobs.extend(postings)
 
         page += 1
+
+    skip_tracker.record_success(name)
 
     jobs = []
 
