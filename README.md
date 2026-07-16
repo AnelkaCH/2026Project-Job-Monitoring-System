@@ -4,6 +4,52 @@ A self-hosted, zero-cost tool that watches specific companies' job boards and te
 
 > **Status: early work in progress.** This is not a finished product. Connectors, filtering, and scheduling are all being built incrementally. Expect breaking changes, missing features, and rough edges. See [Roadmap](#roadmap) for what's actually done vs planned.
 
+## Version 2.1
+
+### Why this exists
+
+Without an audit trail, the Tier 3 hard-stop from v2 is a described behavior with no evidence it runs. V2.1 adds structured logging that records every query, classification, and hard-stop event as JSON lines, kept separate from routine output and rotated so it stays bounded under continuous scheduling.
+
+### What was added
+
+#### `audit_log.py`
+
+Three things, one new module:
+
+- **Two log streams:** `logs/audit.log` (JSON lines, 5 MB × 5 backups) for security events; `logs/operational.log` (timestamped text, 5 MB × 3 backups) for routine output; plus a console handler so interactive runs still show feedback. `setup_logging()` is needed to safely call every run without stacking handlers.
+
+- **`log_audit_event(event_type, **fields)`** writes a JSON line with an ISO 8601 timestamp and any key-value fields.
+
+- **`check_hardstop(response, platform)`** inspects responses for bot-detection signals without DOM/HTML parsing: HTTP 403, HTTP 503 (non-Workday), and `text/html` responses containing `captcha`, `robot`, `access denied`, or `blocked` as substrings.
+
+#### Changes to existing files
+
+| File | Change |
+|---|---|
+| `rate_limiter.py` | Logs `TIER3_HARDSTOP` before raising `RateLimitExceeded` (retries exhausted) and when `check_hardstop()` finds indicators on a successful response. One centralized check covers every adapter. |
+| `job_monitor.py` | All `print()` calls replaced with `operational_logger.*()`. Added three audit events: `QUERY` (before each adapter call), `TIER3_HARDSTOP` (on skip/error), `CLASSIFY` (match/ambiguous/new counts per company). Calls `setup_logging()` at startup. |
+| `.gitignore` | Added `logs/`. |
+
+### How audit events flow
+
+```
+QUERY (before adapter call)
+  -> adapter runs through rate_limiter
+    -> TIER3_HARDSTOP if exhausts retries (reason: throttle/request exhausted)
+    -> TIER3_HARDSTOP if response has bot-detection indicators
+  -> None returned? -> TIER3_HARDSTOP (reason: rate-limited)
+  -> Exception? -> TIER3_HARDSTOP (reason: unexpected error)
+  -> Jobs classified -> CLASSIFY (match_count, ambiguous_count, new_count)
+```
+
+Example `audit.log` lines:
+
+```
+{"event": "QUERY", "timestamp": "2026-07-16T10:30:00", "ats": "greenhouse", "company": "Cloudflare"}
+{"event": "TIER3_HARDSTOP", "timestamp": "2026-07-16T10:30:01", "platform": "greenhouse", "company": "Cloudflare", "reasons": ["HTTP 403 - access denied / bot detection"], "status": 403}
+{"event": "CLASSIFY", "timestamp": "2026-07-16T10:30:02", "ats": "greenhouse", "company": "Cloudflare", "match_count": 5, "ambiguous_count": 2, "new_count": 1}
+```
+
 ## Version 2.0
 
 ### Why this exists

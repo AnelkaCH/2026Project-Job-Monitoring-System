@@ -6,6 +6,8 @@ from typing import Optional, Dict
 from collections import deque
  
 import requests
+
+from audit_log import log_audit_event, check_hardstop
  
 logger = logging.getLogger(__name__)
  
@@ -156,6 +158,7 @@ class RateLimiter:
                     "%s: request error on attempt %d: %s", company, attempt, exc
                 )
                 if attempt > config.max_retries:
+                    log_audit_event("TIER3_HARDSTOP", platform=platform, company=company, reason="request_error_exhausted", attempts=attempt)
                     raise RateLimitExceeded(company, platform, attempt) from exc
                 time.sleep(self._compute_backoff(attempt, config))
                 continue
@@ -164,8 +167,9 @@ class RateLimiter:
             if throttled:
                 attempt += 1
                 if attempt > config.max_retries:
+                    log_audit_event("TIER3_HARDSTOP", platform=platform, company=company, reason="throttle_exhausted", attempts=attempt)
                     raise RateLimitExceeded(company, platform, attempt)
- 
+
                 wait = self._compute_backoff(attempt, config)
                 retry_after = response.headers.get("Retry-After")
                 if retry_after:
@@ -181,4 +185,8 @@ class RateLimiter:
                 time.sleep(wait)
                 continue
  
+            reasons = check_hardstop(response, platform)
+            if reasons:
+                log_audit_event("TIER3_HARDSTOP", platform=platform, company=company, reasons=reasons, status=response.status_code)
+
             return response

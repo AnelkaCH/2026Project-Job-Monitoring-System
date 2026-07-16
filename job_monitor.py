@@ -8,12 +8,16 @@
 #     python job_monitor.py
  
 import json
+import logging
 import os
  
+from audit_log import setup_logging, log_audit_event
 from connectors import CONNECTORS
 from custom_handlers import CUSTOM_HANDLERS
 from notifier import send_notification
 from skip_tracker import SkipTracker
+
+operational_logger = logging.getLogger("job_monitor.operational")
  
 CONFIG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.json")
 SEEN_JOBS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "seen_jobs.json")
@@ -97,6 +101,7 @@ def save_seen_jobs(seen_jobs):
  
  
 def main():
+    setup_logging()
     companies, filters = load_config()
     seen_jobs = load_seen_jobs()
  
@@ -111,33 +116,27 @@ def main():
             handler_name = company.get("handler")
             fetch_function = CUSTOM_HANDLERS.get(handler_name)
             if fetch_function is None:
-                print(f"[SKIP] {name}: no custom handler named '{handler_name}'")
+                operational_logger.warning("[SKIP] %s: no custom handler named '%s'", name, handler_name)
                 continue
         elif ats in CONNECTORS:
             fetch_function = CONNECTORS[ats]
         else:
-            print(f"[SKIP] {name}: unknown ATS type '{ats}'")
+            operational_logger.warning("[SKIP] %s: unknown ATS type '%s'", name, ats)
             continue
  
-        print(f"Checking {name} ({ats})...")
+        log_audit_event("QUERY", ats=ats, company=name)
+        operational_logger.info("Checking %s (%s)...", name, ats)
  
         try:
             raw_jobs = fetch_function(company)
         except Exception as e:
-            # One company failing (site down, endpoint changed) shouldn't
-            # crash the whole run and block checking every other company.
-            print(f"  [ERROR] Failed to fetch {name}: {e}")
+            log_audit_event("TIER3_HARDSTOP", ats=ats, company=name, reason=f"unexpected_error: {e}")
+            operational_logger.error("  [ERROR] Failed to fetch %s: %s", name, e)
             continue
 
         if raw_jobs is None:
-            # Connector was rate-limited into exhaustion and skipped this
-            # company for the cycle (see connectors.py / rate_limiter.py).
-            # Continuing here is deliberate: it skips the seen_jobs[name]
-            # assignment below, so the company's last real baseline stays
-            # intact instead of being overwritten with empty lists. If we
-            # let this fall through, next cycle's dedup would think every
-            # existing posting for this company is "new" again.
-            print(f"  [SKIPPED] {name}: rate-limited this cycle, will retry next run.")
+            log_audit_event("TIER3_HARDSTOP", ats=ats, company=name, reason="adapter_returned_none_rate_limited")
+            operational_logger.warning("  [SKIPPED] %s: rate-limited this cycle, will retry next run.", name)
             continue
  
         # Split fetched jobs into: relevant matches, ambiguous, and the rest.
@@ -162,20 +161,20 @@ def main():
         new_jobs = [job for job in current_jobs if job["id"] not in previous_matched_ids]
         new_ambiguous_jobs = [job for job in ambiguous_jobs if job["id"] not in previous_ambiguous_ids]
  
+        log_audit_event("CLASSIFY", ats=ats, company=name, match_count=len(current_jobs), ambiguous_count=len(ambiguous_jobs), new_count=len(new_jobs))
+
         if new_jobs:
-            print(f"  {len(new_jobs)} new matching posting(s):")
+            operational_logger.info("  %d new matching posting(s):", len(new_jobs))
             for job in new_jobs:
-                print(f"   - {job['title']} | {job['location']}")
+                operational_logger.info("   - %s | %s", job['title'], job['location'])
                 all_new_jobs.append({**job, "company": name})
         else:
-            print(f"  No new matching postings ({len(current_jobs)} match total, unchanged).")
+            operational_logger.info("  No new matching postings (%d match total, unchanged).", len(current_jobs))
  
         if new_ambiguous_jobs:
-            # Only report ambiguous postings not seen in a previous run - same
-            # dedup treatment as matches, so these don't re-appear every run.
-            print(f"  {len(new_ambiguous_jobs)} posting(s) with unclear location/date. Please check manually:")
+            operational_logger.info("  %d posting(s) with unclear location/date. Please check manually:", len(new_ambiguous_jobs))
             for job in new_ambiguous_jobs:
-                print(f"   ? {job['title']} | {job['location']}")
+                operational_logger.info("   ? %s | %s", job['title'], job['location'])
                 all_ambiguous_jobs.append({**job, "company": name})
  
         seen_jobs[name] = {
@@ -185,26 +184,33 @@ def main():
  
     save_seen_jobs(seen_jobs)
  
-    print("\n" + "=" * 50)
+    operational_logger.info("")
+    operational_logger.info("%s", "=" * 50)
     if all_new_jobs:
-        print(f"SUMMARY: {len(all_new_jobs)} new matching posting(s) across all companies:\n")
+        operational_logger.info("SUMMARY: %d new matching posting(s) across all companies:", len(all_new_jobs))
+        operational_logger.info("")
         for job in all_new_jobs:
-            print(f"[{job['company']}] {job['title']} | {job['location']}")
-            print(f"  {job['link']}\n")
+            operational_logger.info("[%s] %s | %s", job['company'], job['title'], job['location'])
+            operational_logger.info("  %s", job['link'])
+            operational_logger.info("")
     else:
-        print("SUMMARY: No new matching postings this run.")
- 
+        operational_logger.info("SUMMARY: No new matching postings this run.")
+
     if all_ambiguous_jobs:
-        print(f"\n{len(all_ambiguous_jobs)} posting(s) need a manual look (unclear location/date):\n")
+        operational_logger.info("")
+        operational_logger.info("%d posting(s) need a manual look (unclear location/date):", len(all_ambiguous_jobs))
+        operational_logger.info("")
         for job in all_ambiguous_jobs:
-            print(f"[{job['company']}] {job['title']} | {job['location']}")
-            print(f"  {job['link']}\n")
+            operational_logger.info("[%s] %s | %s", job['company'], job['title'], job['location'])
+            operational_logger.info("  %s", job['link'])
+            operational_logger.info("")
 
     flagged_companies = skip_tracker.get_flagged()
     if flagged_companies:
-        print(f"\n{len(flagged_companies)} company(ies) repeatedly rate-limited:\n")
+        operational_logger.info("")
+        operational_logger.info("%d company(ies) repeatedly rate-limited:", len(flagged_companies))
         for company_name, streak in sorted(flagged_companies.items(), key=lambda x: -x[1]):
-            print(f"  - {company_name}: skipped {streak} cycles in a row")
+            operational_logger.info("  - %s: skipped %d cycles in a row", company_name, streak)
  
     send_notification(all_new_jobs, all_ambiguous_jobs, flagged_companies)
  

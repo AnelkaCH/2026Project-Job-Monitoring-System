@@ -1,7 +1,7 @@
 seen_jobs.json
-body.json
-otherbody.json
 config.json
+opencode.json
+AGENTS.md
 *_raw.json
 
 __pycache__/
@@ -25,3 +25,6 @@ Thumbs.db
 *.env
 
 custom_handlers.py
+
+logs/*
+!logs/.gitkeep
