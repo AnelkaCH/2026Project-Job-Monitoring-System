@@ -45,9 +45,9 @@ QUERY (before adapter call)
 Example `audit.log` lines:
 
 ```
-{"event": "QUERY", "timestamp": "2026-07-16T10:30:00", "ats": "greenhouse", "company": "Cloudflare"}
-{"event": "TIER3_HARDSTOP", "timestamp": "2026-07-16T10:30:01", "platform": "greenhouse", "company": "Cloudflare", "reasons": ["HTTP 403 - access denied / bot detection"], "status": 403}
-{"event": "CLASSIFY", "timestamp": "2026-07-16T10:30:02", "ats": "greenhouse", "company": "Cloudflare", "match_count": 5, "ambiguous_count": 2, "new_count": 1}
+{"event": "QUERY", "timestamp": "2026-07-16T10:30:00", "ats": "greenhouse", "company": "RandomCheese"}
+{"event": "TIER3_HARDSTOP", "timestamp": "2026-07-16T10:30:01", "platform": "greenhouse", "company": "RandomCheese", "reasons": ["HTTP 403 - access denied / bot detection"], "status": 403}
+{"event": "CLASSIFY", "timestamp": "2026-07-16T10:30:02", "ats": "greenhouse", "company": "RandomCheese", "match_count": 5, "ambiguous_count": 2, "new_count": 1}
 ```
 
 ## Version 2.0
