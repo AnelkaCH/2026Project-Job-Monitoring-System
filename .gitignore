@@ -3,6 +3,7 @@ config.json
 opencode.json
 AGENTS.md
 *_raw.json
+skip_history.json
 
 __pycache__/
 *.pyc

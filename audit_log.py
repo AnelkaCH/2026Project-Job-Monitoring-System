@@ -41,10 +41,10 @@ def _make_handler(path, max_bytes, backup_count, formatter):
 
 
 def setup_logging():
-    """Idempotent – safe to call on every run without stacking handlers."""
+    # Idempotent – safe to call on every run without stacking handlers.
     _ensure_log_dir()
 
-    # ── Audit logger ──────────────────────────────────────────────────
+    # Audit logger
     audit_logger = logging.getLogger(_AUDIT_LOGGER_NAME)
     audit_logger.setLevel(logging.INFO)
     if not audit_logger.handlers:
@@ -55,7 +55,7 @@ def setup_logging():
         audit_logger.addHandler(handler)
         audit_logger.propagate = False
 
-    # ── Operational logger ────────────────────────────────────────────
+    # Operational logger
     op_logger = logging.getLogger(_OPERATIONAL_LOGGER_NAME)
     op_logger.setLevel(logging.DEBUG)
     if not op_logger.handlers:
@@ -66,7 +66,7 @@ def setup_logging():
         op_logger.addHandler(handler)
         op_logger.propagate = False
 
-    # ── Console output (hybrid mode: user still sees summary) ─────────
+    # Console output (hybrid mode: user still sees summary)
     root = logging.getLogger()
     if not any(isinstance(h, logging.StreamHandler) for h in root.handlers):
         console = logging.StreamHandler()
@@ -78,14 +78,14 @@ def setup_logging():
 
 
 def log_audit_event(event_type, **fields):
-    """Write a structured JSON audit line."""
+    # Write a structured JSON audit line.
     record = {"event": event_type, "timestamp": datetime.now(timezone.utc).isoformat()}
     record.update(fields)
     logger = logging.getLogger(_AUDIT_LOGGER_NAME)
     logger.info(json.dumps(record, sort_keys=True))
 
 
-# ── Tier 3 hard-stop detection ───────────────────────────────────────
+# Tier 3 hard-stop detection
 # These checks look for concrete signals that indicate bot detection,
 # CAPTCHA challenges, or anomalous non-API responses.  No DOM walking
 # or HTML parsing – only status codes, Content-Type, and simple substring
@@ -95,12 +95,12 @@ _HARDSTOP_KEYWORDS = ["captcha", "robot", "access denied", "blocked"]
 
 
 def check_hardstop(response, platform):
-    """Inspect a requests.Response for Tier 3 hard-stop indicators.
+    # Inspect a requests.Response for Tier 3 hard-stop indicators.
 
-    Returns a list of reason strings (empty = no hard-stop detected).
-    The response body is not consumed destructively – ``.text`` is a
-    cached property in ``requests``.
-    """
+    # Returns a list of reason strings (empty = no hard-stop detected).
+    # The response body is not consumed destructively – ``.text`` is a
+    # cached property in ``requests``.
+
     reasons = []
 
     if response.status_code == 403:

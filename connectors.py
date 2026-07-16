@@ -14,9 +14,12 @@
 # which ATS it uses under the hood.
 
 import logging
-
+from urllib.parse import urlparse
+ 
+from audit_log import log_audit_event
 from date_utils import calculate_sap_days_ago, days_ago_from_iso, days_ago_from_unix_ms, days_ago_from_workday_text
 from rate_limiter import RateLimiter, RateLimitExceeded
+from robots_check import robots_checker, SkipReason
 from skip_tracker import SkipTracker
 
 logger = logging.getLogger(__name__)
@@ -29,13 +32,20 @@ def fetch_greenhouse(company):
     name = company.get("name", slug)
     url = f"https://api.greenhouse.io/v1/boards/{slug}/jobs"
 
+    parsed = urlparse(url)
+    if not robots_checker.is_allowed(f"{parsed.scheme}://{parsed.netloc}", parsed.path):
+        log_audit_event("robots_txt_skip", company=name, domain=parsed.netloc, path=parsed.path, reason="disallowed for user-agent *")
+        streak = skip_tracker.record_skip(name)
+        logger.warning("Skipping %s this cycle: robots.txt disallows %s (streak: %d)", name, parsed.path, streak)
+        return SkipReason("robots.txt disallowed", f"robots.txt disallows {parsed.path}")
+
     try:
         response = limiter.get(url, platform="greenhouse", company=name, timeout=15)
         response.raise_for_status()
     except RateLimitExceeded as exc:
         streak = skip_tracker.record_skip(name)
         logger.warning("Skipping %s this cycle: %s (streak: %d)", name, exc, streak)
-        return None
+        return SkipReason("rate-limited", str(exc))
  
     skip_tracker.record_success(name)
     data = response.json()
@@ -59,13 +69,20 @@ def fetch_lever(company):
     name = company.get("name", slug)
     url = f"https://api.lever.co/v0/postings/{slug}"
 
+    parsed = urlparse(url)
+    if not robots_checker.is_allowed(f"{parsed.scheme}://{parsed.netloc}", parsed.path):
+        log_audit_event("robots_txt_skip", company=name, domain=parsed.netloc, path=parsed.path, reason="disallowed for user-agent *")
+        streak = skip_tracker.record_skip(name)
+        logger.warning("Skipping %s this cycle: robots.txt disallows %s (streak: %d)", name, parsed.path, streak)
+        return SkipReason("robots.txt disallowed", f"robots.txt disallows {parsed.path}")
+
     try:
         response = limiter.get(url, platform="lever", company=name, timeout=15)
         response.raise_for_status()
     except RateLimitExceeded as exc:
         streak = skip_tracker.record_skip(name)
         logger.warning("Skipping %s this cycle: %s (streak: %d)", name, exc, streak)
-        return None
+        return SkipReason("rate-limited", str(exc))
  
     skip_tracker.record_success(name)
     data = response.json()
@@ -89,13 +106,20 @@ def fetch_ashby(company):
     name = company.get("name", slug)
     url = f"https://api.ashbyhq.com/posting-api/job-board/{slug}"
 
+    parsed = urlparse(url)
+    if not robots_checker.is_allowed(f"{parsed.scheme}://{parsed.netloc}", parsed.path):
+        log_audit_event("robots_txt_skip", company=name, domain=parsed.netloc, path=parsed.path, reason="disallowed for user-agent *")
+        streak = skip_tracker.record_skip(name)
+        logger.warning("Skipping %s this cycle: robots.txt disallows %s (streak: %d)", name, parsed.path, streak)
+        return SkipReason("robots.txt disallowed", f"robots.txt disallows {parsed.path}")
+
     try:
         response = limiter.get(url, platform="ashby", company=name, timeout=15)
         response.raise_for_status()
     except RateLimitExceeded as exc:
         streak = skip_tracker.record_skip(name)
         logger.warning("Skipping %s this cycle: %s (streak: %d)", name, exc, streak)
-        return None
+        return SkipReason("rate-limited", str(exc))
     
     skip_tracker.record_success(name)
     data = response.json()
@@ -126,6 +150,15 @@ def fetch_smartrecruiters(company):
     offset = 0
     all_postings = []
 
+    first_url = (f"https://api.smartrecruiters.com/v1/companies/{slug}/postings"
+                 f"?offset={offset}&limit={requested_page_size}")
+    parsed = urlparse(first_url)
+    if not robots_checker.is_allowed(f"{parsed.scheme}://{parsed.netloc}", parsed.path):
+        log_audit_event("robots_txt_skip", company=name, domain=parsed.netloc, path=parsed.path, reason="disallowed for user-agent *")
+        streak = skip_tracker.record_skip(name)
+        logger.warning("Skipping %s this cycle: robots.txt disallows %s (streak: %d)", name, parsed.path, streak)
+        return SkipReason("robots.txt disallowed", f"robots.txt disallows {parsed.path}")
+
     while True:
         url = (f"https://api.smartrecruiters.com/v1/companies/{slug}/postings"
                f"?offset={offset}&limit={requested_page_size}")
@@ -135,7 +168,7 @@ def fetch_smartrecruiters(company):
         except RateLimitExceeded as exc:
             streak = skip_tracker.record_skip(name)
             logger.warning("Skipping %s this cycle: %s (streak: %d)", name, exc, streak)
-            return None
+            return SkipReason("rate-limited", str(exc))
         data = response.json()
 
         postings = data.get("content", [])
@@ -173,13 +206,20 @@ def fetch_recruitee(company):
     name = company.get("name", slug)
     url = f"https://{slug}.recruitee.com/api/offers/"
 
+    parsed = urlparse(url)
+    if not robots_checker.is_allowed(f"{parsed.scheme}://{parsed.netloc}", parsed.path):
+        log_audit_event("robots_txt_skip", company=name, domain=parsed.netloc, path=parsed.path, reason="disallowed for user-agent *")
+        streak = skip_tracker.record_skip(name)
+        logger.warning("Skipping %s this cycle: robots.txt disallows %s (streak: %d)", name, parsed.path, streak)
+        return SkipReason("robots.txt disallowed", f"robots.txt disallows {parsed.path}")
+
     try:
         response = limiter.get(url, platform="recruitee", company=name, timeout=15)
         response.raise_for_status()
     except RateLimitExceeded as exc:
         streak = skip_tracker.record_skip(name)
         logger.warning("Skipping %s this cycle: %s (streak: %d)", name, exc, streak)
-        return None
+        return SkipReason("rate-limited", str(exc))
  
     skip_tracker.record_success(name)
     data = response.json()
@@ -206,6 +246,13 @@ def fetch_workable(company):
     name = company.get("name", slug)
     url = f"https://apply.workable.com/api/v3/accounts/{slug}/jobs"
 
+    parsed = urlparse(url)
+    if not robots_checker.is_allowed(f"{parsed.scheme}://{parsed.netloc}", parsed.path):
+        log_audit_event("robots_txt_skip", company=name, domain=parsed.netloc, path=parsed.path, reason="disallowed for user-agent *")
+        streak = skip_tracker.record_skip(name)
+        logger.warning("Skipping %s this cycle: robots.txt disallows %s (streak: %d)", name, parsed.path, streak)
+        return SkipReason("robots.txt disallowed", f"robots.txt disallows {parsed.path}")
+
     all_results = []
     body = {"query": "", "department": [], "location": [], "workplace": [], "worktype": []}
 
@@ -219,7 +266,7 @@ def fetch_workable(company):
         except RateLimitExceeded as exc:
             streak = skip_tracker.record_skip(name)
             logger.warning("Skipping %s this cycle: %s (streak: %d)", name, exc, streak)
-            return None
+            return SkipReason("rate-limited", str(exc))
         data = response.json()
 
         results = data.get("results", [])
@@ -268,13 +315,20 @@ def fetch_personio(company):
     domain = company.get("domain", "de")  # some tenants use .com instead of .de
     url = f"https://{slug}.jobs.personio.{domain}/search.json"
 
+    parsed = urlparse(url)
+    if not robots_checker.is_allowed(f"{parsed.scheme}://{parsed.netloc}", parsed.path):
+        log_audit_event("robots_txt_skip", company=name, domain=parsed.netloc, path=parsed.path, reason="disallowed for user-agent *")
+        streak = skip_tracker.record_skip(name)
+        logger.warning("Skipping %s this cycle: robots.txt disallows %s (streak: %d)", name, parsed.path, streak)
+        return SkipReason("robots.txt disallowed", f"robots.txt disallows {parsed.path}")
+
     try:
         response = limiter.get(url, platform="personio", company=name, timeout=15)
         response.raise_for_status()
     except RateLimitExceeded as exc:
         streak = skip_tracker.record_skip(name)
         logger.warning("Skipping %s this cycle: %s (streak: %d)", name, exc, streak)
-        return None
+        return SkipReason("rate-limited", str(exc))
  
     skip_tracker.record_success(name)
     data = response.json()
@@ -303,6 +357,13 @@ def fetch_workday(company):
     offset = 0
     raw_jobs = []
 
+    parsed = urlparse(url)
+    if not robots_checker.is_allowed(f"{parsed.scheme}://{parsed.netloc}", parsed.path):
+        log_audit_event("robots_txt_skip", company=name, domain=parsed.netloc, path=parsed.path, reason="disallowed for user-agent *")
+        streak = skip_tracker.record_skip(name)
+        logger.warning("Skipping %s this cycle: robots.txt disallows %s (streak: %d)", name, parsed.path, streak)
+        return SkipReason("robots.txt disallowed", f"robots.txt disallows {parsed.path}")
+
     while True:
         body = {
             "appliedFacets": {},
@@ -320,7 +381,7 @@ def fetch_workday(company):
         except RateLimitExceeded as exc:
             streak = skip_tracker.record_skip(name)
             logger.warning("Skipping %s this cycle: %s (streak: %d)", name, exc, streak)
-            return None
+            return SkipReason("rate-limited", str(exc))
         data = response.json()
 
         postings = data.get("jobPostings", [])
@@ -359,6 +420,13 @@ def fetch_sap(company):
     page = 0
     all_jobs = []
 
+    parsed = urlparse(url)
+    if not robots_checker.is_allowed(f"{parsed.scheme}://{parsed.netloc}", parsed.path):
+        log_audit_event("robots_txt_skip", company=name, domain=parsed.netloc, path=parsed.path, reason="disallowed for user-agent *")
+        streak = skip_tracker.record_skip(name)
+        logger.warning("Skipping %s this cycle: robots.txt disallows %s (streak: %d)", name, parsed.path, streak)
+        return SkipReason("robots.txt disallowed", f"robots.txt disallows {parsed.path}")
+
     while True:
         body = {
             "locale": locale,
@@ -383,7 +451,7 @@ def fetch_sap(company):
         except RateLimitExceeded as exc:
             streak = skip_tracker.record_skip(name)
             logger.warning("Skipping %s this cycle: %s (streak: %d)", name, exc, streak)
-            return None
+            return SkipReason("rate-limited", str(exc))
         data = response.json()
 
         postings = data.get("jobSearchResult", [])

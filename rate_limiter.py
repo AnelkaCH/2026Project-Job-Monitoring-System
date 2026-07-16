@@ -40,14 +40,13 @@ DEFAULT_CONFIG = PlatformConfig()
  
  
 class RateLimitExceeded(Exception):
-    """
-    Raised when a company's requests are exhausted after all retries.
+    # Raised when a company's requests are exhausted after all retries.
  
-    Callers (adapters) should catch this, mark the company as skipped for
-    this cycle, and let it flow into the email notification rather than
-    crashing the whole run or escalating to the Tier 3 hard-stop logic.
-    Repeated rate-limiting is a much weaker signal than active bot detection.
-    """
+    # Callers (adapters) should catch this, mark the company as skipped for
+    # this cycle, and let it flow into the email notification rather than
+    # crashing the whole run or escalating to the Tier 3 hard-stop logic.
+    # Repeated rate-limiting is a much weaker signal than active bot detection.
+
     def __init__(self, company: str, platform: str, attempts: int):
         self.company = company
         self.platform = platform
@@ -58,7 +57,7 @@ class RateLimitExceeded(Exception):
  
  
 class _DomainTracker:
-    """Tracks request timestamps for a single company within this run only."""
+    # Tracks request timestamps for a single company within this run only.
  
     def __init__(self):
         self.timestamps: deque = deque()
@@ -77,16 +76,14 @@ class _DomainTracker:
  
  
 class RateLimiter:
-    """
-    Usage:
-        limiter = RateLimiter()
-        response = limiter.get(url, platform="greenhouse", company="acme-corp")
+# Usage:
+    #     limiter = RateLimiter()
+    #     response = limiter.get(url, platform="greenhouse", company="acme-corp")
  
-    Since adapters run sequentially (no threads/asyncio), this doesn't need
-    locks. If the scheduler ever moves to concurrent adapters, add a lock
-    per company in _wait_for_capacity before request.get() is called from
-    more than one thread.
-    """
+    # Since adapters run sequentially (no threads/asyncio), this doesn't need
+    # locks. If the scheduler ever moves to concurrent adapters, add a lock
+    # per company in _wait_for_capacity before request.get() is called from
+    # more than one thread.
  
     def __init__(self, configs: Optional[Dict[str, PlatformConfig]] = None):
         self.configs = configs or PLATFORM_CONFIGS
@@ -111,37 +108,33 @@ class RateLimiter:
             time.sleep(sleep_time)
  
     def _compute_backoff(self, attempt: int, config: PlatformConfig) -> float:
-        """Exponential backoff with jitter. Small amount of randomness so
-        retries across companies on the same ATS don't land in lockstep."""
+        # Exponential backoff with jitter. Small amount of randomness so
+        # retries across companies on the same ATS don't land in lockstep.
         base = config.backoff_base_seconds * (2 ** (attempt - 1))
         capped = min(base, config.max_backoff_seconds)
         jitter = random.uniform(0, capped * 0.3)
         return capped + jitter
  
     def _is_platform_throttle(self, platform: str, response: requests.Response) -> bool:
-        """
-        Hook for ATS-specific throttle signals beyond a plain 429.
-        Add cases here as you observe real platform behavior, e.g. some
-        platforms throttle via a 503 or a custom header instead of 429.
-        """
+        # Hook for ATS-specific throttle signals beyond a plain 429.
+        # Add cases here as you observe real platform behavior, e.g. some
+        # platforms throttle via a 503 or a custom header instead of 429.
         if platform == "workday" and response.status_code == 503:
             return True
         return False
  
     def get(self, url: str, platform: str, company: str, **kwargs) -> requests.Response:
-        """Rate-limited, backoff-aware GET. See _request() for details."""
+        # Rate-limited, backoff-aware GET. See _request() for details.
         return self._request(requests.get, url, platform, company, **kwargs)
  
     def post(self, url: str, platform: str, company: str, **kwargs) -> requests.Response:
-        """Rate-limited, backoff-aware POST. See _request() for details."""
+        # Rate-limited, backoff-aware POST. See _request() for details.
         return self._request(requests.post, url, platform, company, **kwargs)
  
     def _request(self, method, url: str, platform: str, company: str, **kwargs) -> requests.Response:
-        """
-        Shared logic for get()/post(). Raises RateLimitExceeded if retries
-        are exhausted; the caller decides what "skip this company" means for
-        its cycle (log it, flag it for the seen-jobs/skip tracker, etc).
-        """
+        # Shared logic for get()/post(). Raises RateLimitExceeded if retries
+        # are exhausted; the caller decides what "skip this company" means for
+        # its cycle (log it, flag it for the seen-jobs/skip tracker, etc).
         config = self._config_for(platform)
         tracker = self._tracker_for(company)
         attempt = 0

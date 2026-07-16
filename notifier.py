@@ -46,7 +46,7 @@ def _ambiguous_row_html(job):
     <div style="border-left:3px solid #d4d4d8; padding:8px 12px; margin-bottom:6px;
                 background:#fafafa;">
         <span style="font-size:13px; color:#52525b;">
-            <strong>{job['title']}</strong> — {job['company']} &middot; {job['location']}
+            <strong>{job['title']}</strong> - {job['company']} &middot; {job['location']}
         </span>
         <a href="{job['link']}" style="font-size:12px; color:#71717a; margin-left:8px;">
             (check manually)
@@ -64,7 +64,7 @@ def _flagged_row_html(company_name, streak):
     <div style="border-left:3px solid #f59e0b; padding:8px 12px; margin-bottom:6px;
                 background:#fffbeb;">
         <span style="font-size:13px; color:#92400e;">
-            <strong>{company_name}</strong> — skipped {streak} cycles in a row
+            <strong>{company_name}</strong> - skipped {streak} cycles in a row
         </span>
     </div>
     """
@@ -97,7 +97,7 @@ def build_email_html(new_jobs, ambiguous_jobs, flagged_companies=None):
         <div style="margin-top:24px;">
             <div style="font-size:13px; font-weight:600; color:#92400e;
                         text-transform:uppercase; letter-spacing:0.05em; margin-bottom:8px;">
-                Repeatedly rate-limited ({len(flagged_companies)})
+                Repeatedly skipped ({len(flagged_companies)})
             </div>
             {flagged_section}
         </div>
@@ -133,7 +133,7 @@ def send_notification(new_jobs, ambiguous_jobs, flagged_companies=None):
     # checked at all" - so it can't stay silent just because job counts are 0.
     flagged_companies = flagged_companies or {}
     if not new_jobs and not ambiguous_jobs and not flagged_companies:
-        print("No new postings, ambiguous postings, or flags — skipping email.")
+        print("No new postings, ambiguous postings, or flags - skipping email.")
         return
 
     email_address = os.environ["EMAIL_ADDRESS"]

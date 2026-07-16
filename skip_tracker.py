@@ -40,11 +40,11 @@ class SkipTracker:
         return self.data[company]
  
     def record_success(self, company: str):
-        """Call when a company completes successfully, resetting its streak."""
+        # Call when a company completes successfully, resetting its streak.
         if company in self.data:
             del self.data[company]
             self._save()
  
     def get_flagged(self) -> Dict[str, int]:
-        """Companies at or above the flag threshold, for the email notification."""
+        # Companies at or above the flag threshold, for the email notification.
         return {c: n for c, n in self.data.items() if n >= self.flag_threshold}

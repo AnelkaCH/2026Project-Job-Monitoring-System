@@ -13,6 +13,7 @@ import os
  
 from audit_log import setup_logging, log_audit_event
 from connectors import CONNECTORS
+from robots_check import SkipReason
 from custom_handlers import CUSTOM_HANDLERS
 from notifier import send_notification
 from skip_tracker import SkipTracker
@@ -134,9 +135,12 @@ def main():
             operational_logger.error("  [ERROR] Failed to fetch %s: %s", name, e)
             continue
 
-        if raw_jobs is None:
-            log_audit_event("TIER3_HARDSTOP", ats=ats, company=name, reason="adapter_returned_none_rate_limited")
-            operational_logger.warning("  [SKIPPED] %s: rate-limited this cycle, will retry next run.", name)
+        if isinstance(raw_jobs, SkipReason):
+            log_audit_event("SKIP", ats=ats, company=name, reason=raw_jobs.reason, detail=raw_jobs.detail)
+            if raw_jobs.reason == "robots.txt disallowed":
+                operational_logger.warning("  [SKIPPED] %s: not allowed by robots.txt.", name)
+            else:
+                operational_logger.warning("  [SKIPPED] %s: rate-limited this cycle, will retry next run.", name)
             continue
  
         # Split fetched jobs into: relevant matches, ambiguous, and the rest.
@@ -208,7 +212,7 @@ def main():
     flagged_companies = skip_tracker.get_flagged()
     if flagged_companies:
         operational_logger.info("")
-        operational_logger.info("%d company(ies) repeatedly rate-limited:", len(flagged_companies))
+        operational_logger.info("%d company(ies) repeatedly skipped:", len(flagged_companies))
         for company_name, streak in sorted(flagged_companies.items(), key=lambda x: -x[1]):
             operational_logger.info("  - %s: skipped %d cycles in a row", company_name, streak)
  

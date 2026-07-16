@@ -4,9 +4,29 @@ A self-hosted, zero-cost tool that watches specific companies' job boards and te
 
 > **Status: early work in progress.** This is not a finished product. Connectors, filtering, and scheduling are all being built incrementally. Expect breaking changes, missing features, and rough edges. See [Roadmap](#roadmap) for what's actually done vs planned.
 
+## Version 2.2
+
+### Version Notes
+
+This is honestly the version I struggled with the most. No, it's not because it was hard. It was just because I had to make a big decision. If I want to work in cybersecurity, respecting robots.txt has to be something I must do. Sure, it is not illegal to disobey it, but this isn't about legal liability. It's about building the habit of treating access control signals as worth following, even when nobody's enforcing them.
+
+### What was added
+
+**`robots_check.py`** - A compliance checker that runs before every adapter's first API call. Uses `urllib.robotparser` (stdlib) to check whether the target path is allowed for `user-agent: *`. Fails conservative: if robots.txt is unreachable, treat as disallowed. Cached per domain for the process lifetime, same pattern as `rate_limiter._trackers`.
+
+**`SkipReason`** = Adapters now return `SkipReason("robots.txt disallowed")` or `SkipReason("rate-limited")` instead of bare `None`. The orchestrator displays the correct reason rather than calling everything "rate-limited."
+
+| File | Change |
+|---|---|
+| `robots_check.py` | **New.** `RobotsChecker`, `SkipReason`, standalone CLI (`python robots_check.py`). |
+| `connectors.py` | robots.txt check + `SkipReason` return in all 9 adapters. |
+| `custom_handlers.py` | Same for Accenture handler. |
+| `job_monitor.py` | Distinguishes robots.txt disallows from rate-limit skips in output. |
+| `notifier.py` | "Repeatedly rate-limited" -> "Repeatedly skipped". |
+
 ## Version 2.1
 
-### Why this exists
+### Version Notes
 
 Without an audit trail, the Tier 3 hard-stop from v2 is a described behavior with no evidence it runs. V2.1 adds structured logging that records every query, classification, and hard-stop event as JSON lines, kept separate from routine output and rotated so it stays bounded under continuous scheduling.
 
@@ -52,7 +72,7 @@ Example `audit.log` lines:
 
 ## Version 2.0
 
-### Why this exists
+### Version Notes
 
 This version adds a rate limiter that proactively slows requests down so they're less likely to look bot-like in the first place. I want to make this system more ethical. This system currentl checks 18 companies across 9 different ATS platforms (for testing purposes), on a recurring schedule (not yet implemented), from the same IP (GitHub Actions' runner). That's exactly the kind of traffic pattern automated bot detection is built to notice. Slowing down and backing off intelligently is the standard, respectful way to run something like this without looking adversarial to the platforms being checked.
 
@@ -96,17 +116,17 @@ adapter (e.g. fetch_greenhouse)
     v
 limiter.get(url, platform="greenhouse", company="Cloudflare")
     │
-    ├─ under the per-minute cap? ─── no ─> wait, then recheck
+    ├- under the per-minute cap? -- no -> wait, then recheck
     │        │
     │       yes
     │        v
     │   make the request
     │        │
-    │        ├─ 429 / throttled? ─── yes ─> wait (exponential + jitter), retry
+    │        ├- 429 / throttled? - yes -> wait (exponential + jitter), retry
     │        │                                     │
     │        │                              retries exhausted?
     │        │                                     │
-    │        │                                    yes ─> raise RateLimitExceeded
+    │        │                                    yes -> raise RateLimitExceeded
     │        │
     │       no
     │        v
@@ -114,8 +134,8 @@ limiter.get(url, platform="greenhouse", company="Cloudflare")
     v
 adapter catches RateLimitExceeded (if raised)
     │
-    ├─ skip_tracker.record_skip(company) -> increments streak, logs it
-    └─ return None instead of a job list
+    ├- skip_tracker.record_skip(company) -> increments streak, logs it
+    └- return None instead of a job list
          │
          v
     job_monitor.py sees None, skips this company for the cycle WITHOUT touching its seen_jobs baseline, so next cycle's dedup still works correctly once the company succeeds again
@@ -146,9 +166,9 @@ adapter catches RateLimitExceeded (if raised)
 | `notifier.py` | Email now includes a flagged-companies section when a streak crosses threshold. |
 | `date_utils.py`, `config.json` | Unchanged. |
 
-## Version 1.0: The Base
+## Version 1.0
 
-### Why I built this
+### Version Notes
 
 I'm tracking internship and job openings at a specific list of Singapore-based companies across cybersecurity, cloud, and tech, as part of my own job search. Rather than checking each company's careers page by hand, this project automates that while staying within clear technical and ethical boundaries (see below).
 

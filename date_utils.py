@@ -1,5 +1,5 @@
 # Converts each ATS's date format into "days ago" as a plain integer.
-# Returns None when the exact age can't be determined (rather than guessing) —
+# Returns None when the exact age can't be determined (rather than guessing)
 # callers should treat None as "ambiguous," not as "0 days old."
  
 import re
@@ -7,7 +7,7 @@ from datetime import datetime, timezone
  
  
 def days_ago_from_iso(iso_string):
-    # For Greenhouse, Ashby, SmartRecruiters, Recruitee — all use ISO timestamps.
+    # For Greenhouse, Ashby, SmartRecruiters, Recruitee since all use ISO timestamps.
     if not iso_string:
         return None
     try:
@@ -18,7 +18,7 @@ def days_ago_from_iso(iso_string):
  
  
 def days_ago_from_unix_ms(ms_value):
-    # For Lever — createdAt is milliseconds since epoch.
+    # For Lever since createdAt is milliseconds since epoch.
     if not ms_value:
         return None
     try:
@@ -41,7 +41,7 @@ def calculate_sap_days_ago(posted_date):
 def days_ago_from_workday_text(text):
     # Workday's postedOn field is relative text: "Posted 2 Days Ago",
     # "Posted Today", or "Posted 30+ Days Ago". That last one only gives a
-    # lower bound, not an exact age — so it returns None (ambiguous)
+    # lower bound, not an exact age so it returns None (ambiguous)
     # rather than guessing a number.
     if not text:
         return None
@@ -53,7 +53,7 @@ def days_ago_from_workday_text(text):
     if "+" in text:
         # Workday buckets everything past this threshold into one label
         # (e.g. jumps straight from "27 Days Ago" to "30+ Days Ago" with
-        # nothing in between) — so postings here are usually well past 30,
+        # nothing in between) so postings here are usually well past 30,
         # not sitting right at the boundary. Treated as definitely stale,
         # not ambiguous.
         return 9999
