@@ -4,6 +4,41 @@ A self-hosted, zero-cost tool that watches specific companies' job boards and te
 
 > **Status: early work in progress.** This is not a finished product. Connectors, filtering, and scheduling are all being built incrementally. Expect breaking changes, missing features, and rough edges. See [Roadmap](#roadmap) for what's actually done vs planned.
 
+## Version 2.2.2
+
+### Version Notes
+
+Secrets were already kept out of git via `.env` and `.gitignore`, but that only protects against committing the `.env` file itself. It doesn't catch a credential accidentally hardcoded somewhere else, like a value pasted in during debugging and never removed. This version adds a pre-commit hook that scans staged changes for anything that looks like a secret before a commit can go through.
+
+### What was added
+
+**`detect-secrets`** pre-commit hook, wired in via the `pre-commit` framework:
+
+- **`.pre-commit-config.yaml`** - Configures the `detect-secrets` hook to run on every commit.
+- **`.secrets.baseline`** - A snapshot of currently-flagged strings (mostly placeholder values in `.env.example`) so the hook only alerts on *new* secrets going forward, not ones already reviewed and accepted.
+
+The hook runs locally, scanning staged files before a commit is finalized. If it detects something matching a secret pattern (API key formats, high-entropy strings assigned to variables like `password` or `token`, private key headers, etc.), the commit is blocked and the offending line is printed so it can be fixed before anything reaches git history.
+
+### Setup required per machine
+
+[#setup-required-per-machine](#setup-required-per-machine)
+
+Unlike the rest of this repo, this hook only activates after running one extra command locally. It's not automatic on a fresh clone:
+
+```bash
+pip install pre-commit detect-secrets --break-system-packages
+pre-commit install
+```
+
+This needs to be re-run on any new machine this repo is cloned onto (e.g. after the SUTD laptop switch).
+
+### Files touched
+
+| File | Change |
+|---|---|
+| `.pre-commit-config.yaml` | **New.** Configures the `detect-secrets` hook. |
+| `.secrets.baseline` | **New.** Baseline of accepted/known flagged strings. |
+
 ## Version 2.2.1
 
 ### Version Notes
