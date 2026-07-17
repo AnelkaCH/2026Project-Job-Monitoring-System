@@ -1,7 +1,11 @@
+import sys
 import time
+from pathlib import Path
 from unittest.mock import patch, MagicMock
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
  
-from rate_limiter import RateLimiter, RateLimitExceeded, PlatformConfig
+from utils.rate_limiter import RateLimiter, RateLimitExceeded, PlatformConfig
  
  
 def fake_response(status_code, headers=None):
@@ -13,7 +17,7 @@ def fake_response(status_code, headers=None):
  
 def test_success_first_try():
     limiter = RateLimiter()
-    with patch("rate_limiter.requests.get", return_value=fake_response(200)) as m:
+    with patch("utils.rate_limiter.requests.get", return_value=fake_response(200)) as m:
         resp = limiter.get("http://x.test/jobs", platform="greenhouse", company="acme")
         assert resp.status_code == 200
         assert m.call_count == 1
@@ -23,7 +27,7 @@ def test_success_first_try():
 def test_retries_then_succeeds():
     limiter = RateLimiter(configs={"greenhouse": PlatformConfig(backoff_base_seconds=0.01, max_retries=3)})
     responses = [fake_response(429), fake_response(429), fake_response(200)]
-    with patch("rate_limiter.requests.get", side_effect=responses) as m:
+    with patch("utils.rate_limiter.requests.get", side_effect=responses) as m:
         resp = limiter.get("http://x.test/jobs", platform="greenhouse", company="acme")
         assert resp.status_code == 200
         assert m.call_count == 3
@@ -32,7 +36,7 @@ def test_retries_then_succeeds():
  
 def test_exhausts_retries_and_raises():
     limiter = RateLimiter(configs={"greenhouse": PlatformConfig(backoff_base_seconds=0.01, max_retries=2)})
-    with patch("rate_limiter.requests.get", return_value=fake_response(429)):
+    with patch("utils.rate_limiter.requests.get", return_value=fake_response(429)):
         try:
             limiter.get("http://x.test/jobs", platform="greenhouse", company="acme")
             assert False, "should have raised"
@@ -45,7 +49,7 @@ def test_exhausts_retries_and_raises():
 def test_respects_retry_after_header():
     limiter = RateLimiter(configs={"greenhouse": PlatformConfig(backoff_base_seconds=0.01, max_retries=2)})
     responses = [fake_response(429, headers={"Retry-After": "0.2"}), fake_response(200)]
-    with patch("rate_limiter.requests.get", side_effect=responses):
+    with patch("utils.rate_limiter.requests.get", side_effect=responses):
         start = time.monotonic()
         limiter.get("http://x.test/jobs", platform="greenhouse", company="acme")
         elapsed = time.monotonic() - start
@@ -55,7 +59,7 @@ def test_respects_retry_after_header():
  
 def test_per_minute_cap_throttles():
     limiter = RateLimiter(configs={"greenhouse": PlatformConfig(max_requests_per_minute=2, backoff_base_seconds=0.01)})
-    with patch("rate_limiter.requests.get", return_value=fake_response(200)):
+    with patch("utils.rate_limiter.requests.get", return_value=fake_response(200)):
         limiter.get("http://x.test/jobs", platform="greenhouse", company="acme")
         limiter.get("http://x.test/jobs", platform="greenhouse", company="acme")
         tracker = limiter._tracker_for("acme")
@@ -65,7 +69,7 @@ def test_per_minute_cap_throttles():
  
 def test_different_companies_dont_share_cap():
     limiter = RateLimiter(configs={"greenhouse": PlatformConfig(max_requests_per_minute=1, backoff_base_seconds=0.01)})
-    with patch("rate_limiter.requests.get", return_value=fake_response(200)):
+    with patch("utils.rate_limiter.requests.get", return_value=fake_response(200)):
         limiter.get("http://x.test/jobs", platform="greenhouse", company="acme")
         limiter.get("http://x.test/jobs", platform="greenhouse", company="beta")
         assert limiter._tracker_for("acme").count_in_window() == 1

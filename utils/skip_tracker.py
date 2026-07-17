@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 # already commits seen_jobs.json back to the repo (needed for its own
 # cross-cycle dedup) should pick this file up too, since it sits right
 # beside it - no separate persistence mechanism needed for this file alone.
-DEFAULT_PATH = Path(__file__).resolve().parent / "skip_history.json"
+DEFAULT_PATH = Path(__file__).resolve().parent.parent / "skip_history.json"
 DEFAULT_FLAG_THRESHOLD = 3  # flag in email after this many consecutive skips
  
  

@@ -16,11 +16,11 @@
 import logging
 from urllib.parse import urlparse
  
-from audit_log import log_audit_event
-from date_utils import calculate_sap_days_ago, days_ago_from_iso, days_ago_from_unix_ms, days_ago_from_workday_text
-from rate_limiter import RateLimiter, RateLimitExceeded
-from robots_check import robots_checker, SkipReason
-from skip_tracker import SkipTracker
+from utils.audit_log import log_audit_event
+from utils.date_utils import calculate_sap_days_ago, days_ago_from_iso, days_ago_from_unix_ms, days_ago_from_workday_text
+from utils.rate_limiter import RateLimiter, RateLimitExceeded
+from utils.robots_check import robots_checker, SkipReason
+from utils.skip_tracker import SkipTracker
 
 logger = logging.getLogger(__name__)
 limiter = RateLimiter()

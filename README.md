@@ -4,6 +4,39 @@ A self-hosted, zero-cost tool that watches specific companies' job boards and te
 
 > **Status: early work in progress.** This is not a finished product. Connectors, filtering, and scheduling are all being built incrementally. Expect breaking changes, missing features, and rough edges. See [Roadmap](#roadmap) for what's actually done vs planned.
 
+## Version 2.2.1
+
+### Version Notes
+
+Every file lived in the root directory. As the codebase grew, it became harder to tell at a glance what was a core module, what was an adapter, and what was infrastructure. This version organizes the project into a package structure without changing any behavior.
+
+### What was added
+
+Restructured the flat file layout into three packages:
+
+- **`adapters/`** - All ATS fetch logic: `connectors.py` (9 standard adapters), `custom_handlers.py` (private handler), and `custom_handler_example.py` (template).
+- **`utils/`** - Shared infrastructure: `audit_log.py`, `date_utils.py`, `rate_limiter.py`, `skip_tracker.py`, `robots_check.py`, and `notifier.py`.
+- **`tests/`** - Unit tests, with automatic `sys.path` resolution so tests run without manual `PYTHONPATH` setup.
+
+Imports across all files updated to use package-qualified paths (`from utils.rate_limiter import ...`). Internal references within `utils/` use relative imports where appropriate. Three files (`audit_log.py`, `skip_tracker.py`, `robots_check.py`) had `__file__`-relative path logic updated to account for the extra directory level.
+
+`job_monitor.py` stays in the project root as the main entrypoint.
+
+### Files touched
+
+| File | Change |
+|---|---|
+| `adapters/connectors.py` | **Moved** from root. Imports updated. |
+| `adapters/custom_handlers.py` | **Moved** from root. Imports updated. |
+| `adapters/custom_handler_example.py` | **Moved** from root. Imports updated. |
+| `utils/audit_log.py` | **Moved** from root. Log path corrected for new depth. |
+| `utils/date_utils.py` | **Moved** from root. No import changes (leaf module). |
+| `utils/rate_limiter.py` | **Moved** from root. Import changed to relative (`from .audit_log`). |
+| `utils/skip_tracker.py` | **Moved** from root. `skip_history.json` path corrected. |
+| `utils/robots_check.py` | **Moved** from root. `config.json` path corrected for standalone CLI. |
+| `utils/notifier.py` | **Moved** from root. No import changes (leaf module). |
+| `tests/test_rate_limiter.py` | **Moved** from root. Patch strings updated. Added `sys.path` auto-resolution. |
+
 ## Version 2.2
 
 ### Version Notes

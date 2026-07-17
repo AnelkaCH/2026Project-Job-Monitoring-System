@@ -7,7 +7,7 @@ from collections import deque
  
 import requests
 
-from audit_log import log_audit_event, check_hardstop
+from .audit_log import log_audit_event, check_hardstop
  
 logger = logging.getLogger(__name__)
  

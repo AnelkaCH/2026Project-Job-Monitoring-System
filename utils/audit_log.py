@@ -14,7 +14,7 @@ import os
 from datetime import datetime, timezone
 from logging.handlers import RotatingFileHandler
 
-LOG_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs")
+LOG_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "logs")
 AUDIT_FILE = os.path.join(LOG_DIR, "audit.log")
 OPERATIONAL_FILE = os.path.join(LOG_DIR, "operational.log")
 

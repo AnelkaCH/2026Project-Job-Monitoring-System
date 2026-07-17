@@ -26,7 +26,7 @@ from urllib.robotparser import RobotFileParser
 logger = logging.getLogger(__name__)
 
 # Path relative to this file, same convention as job_monitor's config loading.
-CONFIG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.json")
+CONFIG_FILE = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "config.json")
 
 
 class RobotsChecker:
