@@ -4,6 +4,13 @@ A self-hosted, zero-cost tool that watches specific companies' job boards and te
 
 > **Status: early work in progress.** This is not a finished product. Connectors, filtering, and scheduling are all being built incrementally. Expect breaking changes, missing features, and rough edges. See [Roadmap](#roadmap) for what's actually done vs planned.
 
+## Current Issues
+
+There are some issues observed that will be fixed in a later version.
+
+- Broken links - Some of the buttons don't actually lead to the posting. Will fix this later.
+- Location filtering - There is a problem with multiple locations.
+
 ## Version 2.2.2
 
 ### Version Notes
