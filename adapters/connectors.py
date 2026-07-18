@@ -26,7 +26,7 @@ logger = logging.getLogger(__name__)
 limiter = RateLimiter()
 skip_tracker = SkipTracker()
 
-def fetch_greenhouse(company):
+def fetch_greenhouse(company): # Working
     # Greenhouse: single GET request, no pagination needed.
     slug = company["slug"]
     name = company.get("name", slug)
@@ -63,7 +63,7 @@ def fetch_greenhouse(company):
     return jobs
 
 
-def fetch_lever(company):
+def fetch_lever(company): # Working
     # Lever: single GET request, no pagination needed.
     slug = company["slug"]
     name = company.get("name", slug)
@@ -100,7 +100,7 @@ def fetch_lever(company):
     return jobs
 
 
-def fetch_ashby(company):
+def fetch_ashby(company): # Not Working (robots.txt disallowed)
     # Ashby: single GET request, no pagination needed.
     slug = company["slug"]
     name = company.get("name", slug)
@@ -137,7 +137,7 @@ def fetch_ashby(company):
     return jobs
 
 
-def fetch_smartrecruiters(company):
+def fetch_smartrecruiters(company): # Not Working (robots.txt disallowed)
     # SmartRecruiters: public Posting API, GET, paginated via offset/limit,
     # confirmed no-auth-required for this specific endpoint per their docs.
 
@@ -200,7 +200,7 @@ def fetch_smartrecruiters(company):
     return jobs
 
 
-def fetch_recruitee(company):
+def fetch_recruitee(company): # Working
     # Recruitee: single GET request, no pagination needed.
     slug = company["slug"]
     name = company.get("name", slug)
@@ -237,7 +237,7 @@ def fetch_recruitee(company):
     return jobs
 
 
-def fetch_workable(company):
+def fetch_workable(company): # Not Working (robots.txt disallowed)
     # Workable: POST request, cursor-based pagination (not offset-based).
     # Each response includes a "nextPage" token; feeding it back as "token"
     # in the next request's body is how you get the next page (confirmed
@@ -298,7 +298,7 @@ def fetch_workable(company):
     return jobs
 
 
-def fetch_personio(company):
+def fetch_personio(company): # Working
     # Personio: single GET request via the /search.json endpoint, no auth.
 
     # Two known gaps in this feed:
@@ -346,7 +346,7 @@ def fetch_personio(company):
     return jobs
 
 
-def fetch_workday(company):
+def fetch_workday(company): # Working
     # Workday: POST request, paginated. Loops through offsets until
     # all postings are collected. This is the pattern proven working
     # on Ensign's endpoint.
@@ -408,7 +408,7 @@ def fetch_workday(company):
         })
     return jobs
 
-def fetch_sap(company):
+def fetch_sap(company): # Not Working (robots.txt disallowed)
     # SAP SuccessFactors Recruiting
     # Public JSON endpoint, page-based pagination.
 

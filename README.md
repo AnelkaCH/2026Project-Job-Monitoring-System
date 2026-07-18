@@ -8,8 +8,8 @@ A self-hosted, zero-cost tool that watches specific companies' job boards and te
 
 There are some issues observed that will be fixed in a later version.
 
-- Broken links - Some of the buttons don't actually lead to the posting. Will fix this later.
 - Location filtering - There is a problem with multiple locations.
+- Some ATS have stricter `robots.txt` (SAP, smartrecruiters, ashby, workable), but will still be in the `connectors.py` file just in case they are changed.
 
 ## Version 2.2.2
 
