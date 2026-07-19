@@ -6,6 +6,21 @@ A self-hosted, zero-cost tool that watches specific companies' job boards and te
 
 I was tracking internship and job openings across cybersecurity, cloud, and tech companies in Singapore as part of my own job search. Rather than checking each company's careers page by hand, I built this to automate the process while staying within clear technical and ethical boundaries. It is also a portfolio project demonstrating engineering judgment around API usage, rate limits, and respecting what platforms intend to expose publicly.
 
+## Screenshots / Demo
+
+### Logs
+
+![Logs](/documentation/image.png)
+
+### Email Notification
+
+![Notification](/documentation/image1.png)
+
+## Documentation
+
+- [Architecture](./ARCHITECTURE.md) -- design decisions and system structure
+- [Changelog](./CHANGELOG.md) -- version history
+
 ## Features
 
 - **Adapter pattern** supporting 10+ ATS platforms (Greenhouse, Lever, Ashby, SmartRecruiters, Recruitee, Workable, Personio, Workday, SAP SuccessFactors, plus custom handlers)
@@ -21,16 +36,6 @@ I was tracking internship and job openings across cybersecurity, cloud, and tech
 ## Tech Stack
 
 `Python` `requests` `python-dotenv`
-
-## Screenshots / Demo
-
-### Logs
-
-![Logs](/documentation/image.png)
-
-### Email Notification
-
-![Notification](/documentation/image1.png)
 
 ## How It Works
 
@@ -119,11 +124,6 @@ JobMonitoring/
 
 - **Location filtering** -- There is a known problem with multiple locations in a single listing (e.g., "Singapore, Hong Kong") not reliably matching the configured location filter.
 - **Stricter robots.txt on some ATS** -- SAP SuccessFactors, SmartRecruiters, Ashby, and Workable currently disallow the endpoints used by this system. The adapters remain in place in case the platforms update their policies.
-
-## Documentation
-
-- [Architecture](./ARCHITECTURE.md) -- design decisions and system structure
-- [Changelog](./CHANGELOG.md) -- version history
 
 ## License
 
