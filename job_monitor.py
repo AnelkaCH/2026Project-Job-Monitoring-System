@@ -139,6 +139,8 @@ def main():
             log_audit_event("SKIP", ats=ats, company=name, reason=raw_jobs.reason, detail=raw_jobs.detail)
             if raw_jobs.reason == "robots.txt disallowed":
                 operational_logger.warning("  [SKIPPED] %s: not allowed by robots.txt.", name)
+            elif raw_jobs.reason == "bot-detection":
+                operational_logger.warning("  [SKIPPED] %s: bot-detection triggered (Tier 3 hard-stop).", name)
             else:
                 operational_logger.warning("  [SKIPPED] %s: rate-limited this cycle, will retry next run.", name)
             continue

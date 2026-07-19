@@ -45,7 +45,7 @@ def fetch_greenhouse(company): # Working
     except RateLimitExceeded as exc:
         streak = skip_tracker.record_skip(name)
         logger.warning("Skipping %s this cycle: %s (streak: %d)", name, exc, streak)
-        return SkipReason("rate-limited", str(exc))
+        return SkipReason(exc.reason, str(exc))
  
     skip_tracker.record_success(name)
     data = response.json()
@@ -82,7 +82,7 @@ def fetch_lever(company): # Working
     except RateLimitExceeded as exc:
         streak = skip_tracker.record_skip(name)
         logger.warning("Skipping %s this cycle: %s (streak: %d)", name, exc, streak)
-        return SkipReason("rate-limited", str(exc))
+        return SkipReason(exc.reason, str(exc))
  
     skip_tracker.record_success(name)
     data = response.json()
@@ -119,7 +119,7 @@ def fetch_ashby(company): # Not Working (robots.txt disallowed)
     except RateLimitExceeded as exc:
         streak = skip_tracker.record_skip(name)
         logger.warning("Skipping %s this cycle: %s (streak: %d)", name, exc, streak)
-        return SkipReason("rate-limited", str(exc))
+        return SkipReason(exc.reason, str(exc))
     
     skip_tracker.record_success(name)
     data = response.json()
@@ -168,7 +168,7 @@ def fetch_smartrecruiters(company): # Not Working (robots.txt disallowed)
         except RateLimitExceeded as exc:
             streak = skip_tracker.record_skip(name)
             logger.warning("Skipping %s this cycle: %s (streak: %d)", name, exc, streak)
-            return SkipReason("rate-limited", str(exc))
+            return SkipReason(exc.reason, str(exc))
         data = response.json()
 
         postings = data.get("content", [])
@@ -219,7 +219,7 @@ def fetch_recruitee(company): # Working
     except RateLimitExceeded as exc:
         streak = skip_tracker.record_skip(name)
         logger.warning("Skipping %s this cycle: %s (streak: %d)", name, exc, streak)
-        return SkipReason("rate-limited", str(exc))
+        return SkipReason(exc.reason, str(exc))
  
     skip_tracker.record_success(name)
     data = response.json()
@@ -266,7 +266,7 @@ def fetch_workable(company): # Not Working (robots.txt disallowed)
         except RateLimitExceeded as exc:
             streak = skip_tracker.record_skip(name)
             logger.warning("Skipping %s this cycle: %s (streak: %d)", name, exc, streak)
-            return SkipReason("rate-limited", str(exc))
+            return SkipReason(exc.reason, str(exc))
         data = response.json()
 
         results = data.get("results", [])
@@ -328,7 +328,7 @@ def fetch_personio(company): # Working
     except RateLimitExceeded as exc:
         streak = skip_tracker.record_skip(name)
         logger.warning("Skipping %s this cycle: %s (streak: %d)", name, exc, streak)
-        return SkipReason("rate-limited", str(exc))
+        return SkipReason(exc.reason, str(exc))
  
     skip_tracker.record_success(name)
     data = response.json()
@@ -381,7 +381,7 @@ def fetch_workday(company): # Working
         except RateLimitExceeded as exc:
             streak = skip_tracker.record_skip(name)
             logger.warning("Skipping %s this cycle: %s (streak: %d)", name, exc, streak)
-            return SkipReason("rate-limited", str(exc))
+            return SkipReason(exc.reason, str(exc))
         data = response.json()
 
         postings = data.get("jobPostings", [])
@@ -451,7 +451,7 @@ def fetch_sap(company): # Not Working (robots.txt disallowed)
         except RateLimitExceeded as exc:
             streak = skip_tracker.record_skip(name)
             logger.warning("Skipping %s this cycle: %s (streak: %d)", name, exc, streak)
-            return SkipReason("rate-limited", str(exc))
+            return SkipReason(exc.reason, str(exc))
         data = response.json()
 
         postings = data.get("jobSearchResult", [])

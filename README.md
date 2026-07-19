@@ -39,7 +39,7 @@ I was tracking internship and job openings across cybersecurity, cloud, and tech
 
 ## How It Works
 
-The system runs on a scheduled GitHub Actions job. Each cycle, it iterates through configured companies, dispatches to the appropriate ATS adapter, checks robots.txt compliance, and fetches job listings through the rate limiter. Results are classified by keyword and location filters, deduplicated against previously seen postings, and new matches trigger an HTML email notification. Companies that fail repeatedly (rate-limited or robots.txt-disallowed) are flagged for manual review after three consecutive skips.
+The system runs on a scheduled GitHub Actions job. Each cycle, it iterates through configured companies, dispatches to the appropriate ATS adapter, checks robots.txt compliance, and fetches job listings through the rate limiter. Results are classified by keyword and location filters, deduplicated against previously seen postings, and new matches trigger an HTML email notification. Companies that fail repeatedly (rate-limited, bot-detected, or robots.txt-disallowed) are flagged for manual review after three consecutive skips.
 
 ## Getting Started
 

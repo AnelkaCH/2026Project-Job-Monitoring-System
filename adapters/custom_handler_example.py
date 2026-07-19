@@ -19,6 +19,7 @@ import logging
  
 from utils.date_utils import days_ago_from_iso
 from utils.rate_limiter import RateLimiter, RateLimitExceeded
+from utils.robots_check import SkipReason
 from utils.skip_tracker import SkipTracker
  
 logger = logging.getLogger(__name__)
@@ -55,7 +56,7 @@ def fetch_example_company(company):
         except RateLimitExceeded as exc:
             streak = skip_tracker.record_skip(name)
             logger.warning("Skipping %s this cycle: %s (streak: %d)", name, exc, streak)
-            return None
+            return SkipReason(exc.reason, str(exc))
         data = response.json()
  
         postings = data.get("results", [])

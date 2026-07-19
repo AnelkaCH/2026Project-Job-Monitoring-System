@@ -40,19 +40,20 @@ DEFAULT_CONFIG = PlatformConfig()
  
  
 class RateLimitExceeded(Exception):
-    # Raised when a company's requests are exhausted after all retries.
- 
+    # Raised when a company's requests are exhausted after all retries,
+    # or when a Tier 3 hard-stop (bot detection) is triggered.
+
     # Callers (adapters) should catch this, mark the company as skipped for
     # this cycle, and let it flow into the email notification rather than
-    # crashing the whole run or escalating to the Tier 3 hard-stop logic.
-    # Repeated rate-limiting is a much weaker signal than active bot detection.
+    # crashing the whole run or escalating further.
 
-    def __init__(self, company: str, platform: str, attempts: int):
+    def __init__(self, company: str, platform: str, attempts: int, reason: str = "rate-limited"):
         self.company = company
         self.platform = platform
         self.attempts = attempts
+        self.reason = reason
         super().__init__(
-            f"{company} ({platform}) skipped after {attempts} rate-limited attempts"
+            f"{company} ({platform}) skipped after {attempts} attempt(s): {reason}"
         )
  
  
@@ -181,5 +182,6 @@ class RateLimiter:
             reasons = check_hardstop(response, platform)
             if reasons:
                 log_audit_event("TIER3_HARDSTOP", platform=platform, company=company, reasons=reasons, status=response.status_code)
+                raise RateLimitExceeded(company, platform, attempt, reason="bot-detection")
 
             return response

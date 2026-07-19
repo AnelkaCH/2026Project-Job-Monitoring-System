@@ -5,6 +5,19 @@
 - A working UI
 - Scheduler
 
+## [2026-07-19] v2.3 - Tier 3 Hard-Stop Propagation
+### Added
+-(none)
+
+### Changed
+- `RateLimitExceeded` exception now accepts an optional `reason` field to distinguish rate-limits from bot-detection.
+- `RateLimiter._request()` now raises `RateLimitExceeded(reason="bot-detection")` when `check_hardstop()` detects a CAPTCHA or bot-detection signal, instead of silently logging and returning the response.
+- All 9 adapters in `connectors.py` and the custom handler in `custom_handlers.py` pass `exc.reason` through to `SkipReason`, so the orchestrator and email can distinguish bot-detection skips from rate-limit skips.
+- `job_monitor.py` displays a dedicated `[SKIPPED] bot-detection triggered (Tier 3 hard-stop)` message instead of lumping hard-stop events under "rate-limited."
+
+### Fixed
+- `custom_handler_example.py` template now returns `SkipReason(exc.reason, str(exc))` instead of bare `None` when rate-limited, matching the real handlers' contract.
+
 ## [2026-07-19] v2.2.3 - Proper Documentation
 ### Added
 - `CHANGELOG.md` - Holds every version notes.
