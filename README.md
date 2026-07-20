@@ -131,4 +131,4 @@ This project is licensed under the MIT License -- see [LICENSE](./LICENSE) for d
 
 ## Contact
 
-Anelka Cornelius Hariyanto -- [LinkedIn](www.linkedin.com/in/anelka-hariyanto) -- [GitHub: AnelkaCH](https://github.com/AnelkaCH)
+Anelka Cornelius Hariyanto -- [LinkedIn](https://www.linkedin.com/in/anelka-hariyanto/) -- [GitHub: AnelkaCH](https://github.com/AnelkaCH)
