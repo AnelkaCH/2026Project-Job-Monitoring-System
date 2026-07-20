@@ -5,6 +5,17 @@
 - A working UI
 - Scheduler
 
+## [2026-07-20] v2.3.1 - Test Coverage Expansion
+### Added
+- `tests/test_robots_check.py` - 12 tests covering `RobotsChecker` (URL normalization, fetch success/URLError, allow/deny/caching/fail-conservative in `is_allowed`, custom user-agent) and `SkipReason` dataclass.
+- `tests/test_audit_log.py` - 15 tests covering `check_hardstop()` (all 9 response-signal scenarios including the Workday exemption boundary, multiple-accumulation, and non-HTML keyword edge case), `log_audit_event()` (valid JSON shape), and `setup_logging()` (dir creation, handler attachment, idempotency via `tmp_path`).
+
+### Changed
+- `tests/` - Both files use pytest-native style with fixtures and `unittest.mock`, consistent with the existing codebase convention.
+
+### Fixed
+- (none)
+
 ## [2026-07-19] v2.3 - Tier 3 Hard-Stop Propagation
 ### Added
 -(none)

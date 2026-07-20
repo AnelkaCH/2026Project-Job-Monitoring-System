@@ -193,6 +193,6 @@ A complete run cycle in `job_monitor.py`:
 
 - **No scheduler wired yet** -- The system is designed to run on a schedule (GitHub Actions), but the scheduling configuration is not yet documented or finalized. Currently each run must be triggered manually or via an external scheduler.
 
-- **Limited test coverage** -- Only the rate limiter has unit tests (`tests/test_rate_limiter.py`). Adapters, classification, robots checker, and notification are not yet covered.
+- **Test coverage** -- Unit tests cover the three security-critical modules: rate limiter (6 tests in `tests/test_rate_limiter.py`), robots.txt compliance checker (12 tests in `tests/test_robots_check.py`), and audit logging / hard-stop detection (15 tests in `tests/test_audit_log.py`). Adapters, classification, and notification are not yet covered.
 
-- **Minimal dependencies** -- Only `requests` and `python-dotenv` are external. Everything else (robotparser, JSON, logging, SMTP, datetime, collections, dataclasses) is Python stdlib. This is intentional for security and portability but means some features (e.g., HTML parsing) require manual implementation.
+- **Minimal dependencies** -- Runtime: only `requests` and `python-dotenv`. Everything else (robotparser, JSON, logging, SMTP, datetime, collections, dataclasses) is Python stdlib. Testing requires `pytest` (listed in `requirements-dev.txt`). This is intentional for security and portability but means some features (e.g., HTML parsing) require manual implementation.

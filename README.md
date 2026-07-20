@@ -74,6 +74,20 @@ cp config.example.json config.json
 
 See [`config.example.json`](./config.example.json) for the format, including how a "custom" ATS entry references a handler.
 
+### Testing
+
+Install dev dependencies:
+```bash
+pip install -r requirements-dev.txt
+```
+
+Run all tests with:
+```bash
+pytest tests/
+```
+
+33 tests across three modules covering the security-critical infrastructure: rate limiter (6 tests), robots.txt compliance checker (12 tests), and audit logging / hard-stop detection (15 tests). Tests use `unittest.mock` to avoid real network or filesystem I/O and are safe to run without configuration.
+
 ### Optional: Pre-Commit Hook
 
 If you plan to contribute, install the detect-secrets pre-commit hook:
@@ -115,7 +129,10 @@ JobMonitoring/
     audit_log.py              Dual-stream audit + operational logging
     notifier.py               HTML email notifications via Gmail SMTP
     date_utils.py             Date format converters per ATS
-  tests/                      Unit tests
+  tests/                      Unit tests (33 total)
+    test_rate_limiter.py      Rate limiter tests (6)
+    test_robots_check.py      Robots.txt compliance tests (12)
+    test_audit_log.py         Audit log and hard-stop tests (15)
   logs/                       Runtime log files (gitignored)
   documentation/              Holds documentation and screenshots
 ```
