@@ -1,28 +1,40 @@
 {
     "filters": {
         "locations": [
-        "ADD YOUR LOCATION(S) HERE"
+        "ADD YOUR LOCATION(S) HERE" // e.g. "singapore", "united states"
         ],
-        "max_age_days": 10000000000,
+        "max_age_days": 10000000000, // e.g. 30, 60, 90
         "exclude_keywords": [
-        "ADD KEYWORDS HERE"
+        "ADD KEYWORDS HERE" // e.g. "HR", "recruiter", "talent acquisition"
         ],
         "keywords": [
-        "ADD YOUR KEYWORD(S) HERE"
+        "ADD YOUR KEYWORD(S) HERE" // e.g. "engineer", "developer', "analyst"
         ]
     },
     "companies": [
-        {
-        "name": "ADD YOUR COMPANY NAME HERE",
-        "ats": "ADD TIER 2 ATS NAME HERE",
-        "workday_url": "ADD YOUR EXACT ENDPOINT URL HERE",
-        "job_base_url": "ADD YOUR JOB BASE URL HERE"
-        },
+        // Tier 1 ATS
         {
         "name": "ADD YOUR COMPANY NAME HERE",
         "ats": "ADD TIER 1 ATS NAME HERE",
         "slug": "ADD YOUR SLUG HERE"
         },
+        // Tier 2 ATS - Workday
+        {
+        "name": "ADD YOUR COMPANY NAME HERE",
+        "ats": "workday",
+        "workday_url": "ADD YOUR EXACT ENDPOINT URL HERE",
+        "job_base_url": "ADD YOUR JOB BASE URL HERE"
+        },
+        // Tier 2 ATS - SAP SuccessFactors
+        {
+        "name": "ADD YOUR COMPANY NAME HERE",
+        "ats": "sap",
+        "sap_url": "ADD YOUR EXACT ENDPOINT URL HERE",
+        "job_base_url": "ADD YOUR JOB BASE URL HERE",
+        "locale": "ADD LOCALE HERE" // e.g. en_GB, en_US, en_AU
+        },
+        // Tier 2 ATS - Custom
+        // It depends how you want it to be handled. You can create a custom handler for your company and add it to the adapters folder.
         {
         "name": "ADD YOUR COMPANY NAME HERE",
         "ats": "custom",
