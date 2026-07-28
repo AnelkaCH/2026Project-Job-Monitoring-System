@@ -1,5 +1,7 @@
 # Job Monitoring System
 
+[![Tests](https://github.com/AnelkaCH/2026Project-Job-Monitoring-System/actions/workflows/tests.yml/badge.svg)](https://github.com/AnelkaCH/2026Project-Job-Monitoring-System/actions/workflows/tests.yml)
+
 A self-hosted, zero-cost tool that watches specific companies' job boards and tells you when they post something new, instead of manually checking a dozen careers pages every day.
 
 ## Why I Built This
@@ -32,6 +34,7 @@ I was tracking internship and job openings across cybersecurity, cloud, and tech
 - **Audit logging** -- dual-stream structured logging (JSON audit events + timestamped operational output) with file rotation
 - **Skip tracking** -- persistent consecutive-skip counter per company; streaks of 3+ trigger a flag in the email
 - **Detect-secrets pre-commit hook** -- scans staged changes for credentials and high-entropy strings before commits go through
+- **CI pipeline** -- GitHub Actions workflow runs the full test suite on every push and PR to `main`; live status badge in this README
 
 ## Tech Stack
 
@@ -135,6 +138,9 @@ JobMonitoring/
     test_audit_log.py         Audit log and hard-stop tests (15)
   logs/                       Runtime log files (gitignored)
   documentation/              Holds documentation and screenshots
+  .github/
+    workflows/
+      tests.yml               CI workflow: runs pytest on push and PR to main
 ```
 
 ## Known Issues

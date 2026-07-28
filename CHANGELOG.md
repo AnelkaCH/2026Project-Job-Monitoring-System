@@ -6,6 +6,17 @@
 - Scheduler
 - Many more things to come :D
 
+## [2026-07-28] v2.4 - CI Pipeline
+### Added
+- `.github/workflows/tests.yml` - GitHub Actions workflow that runs the full pytest suite (`pytest tests/ -v`) on every push and pull request to `main`. Installs runtime and dev dependencies in separate steps, matching the Getting Started docs. No secrets required as all 33 tests mock network and filesystem I/O.
+- CI badge in `README.md` - Displays live passing/failing status of the last workflow run on `main`.
+
+### Changed
+- (none)
+
+### Fixed
+- (none)
+
 ## [2026-07-21] v2.3.2 - Example of Config.json Reformat
 ### Added
 - (none)
