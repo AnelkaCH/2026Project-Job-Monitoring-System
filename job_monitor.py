@@ -10,6 +10,7 @@
 import json
 import logging
 import os
+from datetime import datetime, timezone
  
 from utils.audit_log import setup_logging, log_audit_event
 from adapters.connectors import CONNECTORS
@@ -99,8 +100,47 @@ def load_seen_jobs():
 def save_seen_jobs(seen_jobs):
     with open(SEEN_JOBS_FILE, "w", encoding="utf-8") as f:
         json.dump(seen_jobs, f, indent=2)
- 
- 
+
+
+def build_company_record(company, current_jobs, ambiguous_jobs, previous_record, now_iso=None):
+    # Builds the stored entry for one company in seen_jobs.json.
+    #
+    # Dedup identity stays the job id per company (matched_ids / ambiguous_ids
+    # are unchanged, same mechanism as before). Since v3.0 an extra "details"
+    # map is written too, keyed by job id, so the dashboard can show titles,
+    # links, ATS platform, and the date each posting was first matched.
+    #
+    # first_seen is preserved for ids already in the previous record and set
+    # to now for brand-new ones. Records written before v3.0 have no details
+    # at all, so their ids get backfilled with now on the first v3.0 run.
+
+    if now_iso is None:
+        now_iso = datetime.now(timezone.utc).isoformat()
+
+    previous_record = previous_record or {}
+    previous_details = previous_record.get("details", {})
+
+    details = {}
+    for job in current_jobs + ambiguous_jobs:
+        job_id = job["id"]
+        previous = previous_details.get(job_id, {})
+        details[job_id] = {
+            "title": job.get("title", "Untitled"),
+            "location": job.get("location", "Unknown"),
+            "posted": job.get("posted", ""),
+            "posted_days_ago": job.get("posted_days_ago"),
+            "link": job.get("link", ""),
+            "ats": company.get("ats", "unknown"),
+            "first_seen": previous.get("first_seen", now_iso),
+        }
+
+    return {
+        "matched_ids": [job["id"] for job in current_jobs],
+        "ambiguous_ids": [job["id"] for job in ambiguous_jobs],
+        "details": details,
+    }
+
+
 def main():
     setup_logging()
     companies, filters = load_config()
@@ -183,10 +223,14 @@ def main():
                 operational_logger.info("   ? %s | %s", job['title'], job['location'])
                 all_ambiguous_jobs.append({**job, "company": name})
  
-        seen_jobs[name] = {
-            "matched_ids": list(current_matched_ids),
-            "ambiguous_ids": list(current_ambiguous_ids)
-        }
+        previous_record = seen_jobs.get(name, {})
+        if "details" not in previous_record and (
+            previous_record.get("matched_ids") or previous_record.get("ambiguous_ids")
+        ):
+            operational_logger.info(
+                "  [MIGRATE] %s: pre-v3.0 record found, backfilling match dates", name
+            )
+        seen_jobs[name] = build_company_record(company, current_jobs, ambiguous_jobs, previous_record)
  
     save_seen_jobs(seen_jobs)
  

@@ -25,6 +25,7 @@ I was tracking internship and job openings across cybersecurity, cloud, and tech
 
 ## Features
 
+- **Interactive dashboard** -- a Streamlit jobs viewer that turns the match history into a filterable table (company, title, date matched)
 - **Adapter pattern** supporting 10+ ATS platforms (Greenhouse, Lever, Ashby, SmartRecruiters, Recruitee, Workable, Personio, Workday, SAP SuccessFactors, plus custom handlers)
 - **Tiered classification** -- config-driven keyword, location, exclude-keyword, and age filters sort jobs into match / ambiguous / no_match tiers
 - **Deduplication** -- previously seen job IDs are stored in `seen_jobs.json` so the same posting is never reported twice
@@ -38,11 +39,26 @@ I was tracking internship and job openings across cybersecurity, cloud, and tech
 
 ## Tech Stack
 
-`Python` `requests` `python-dotenv`
+`Python` `requests` `python-dotenv` `streamlit` `pandas`
 
 ## How It Works
 
 The system runs on a scheduled GitHub Actions job (not yet available). Each cycle, it iterates through configured companies, dispatches to the appropriate ATS adapter, checks robots.txt compliance, and fetches job listings through the rate limiter. Results are classified by keyword and location filters, deduplicated against previously seen postings, and new matches trigger an HTML email notification. Companies that fail repeatedly (rate-limited, bot-detected, or robots.txt-disallowed) are flagged for manual review after three consecutive skips.
+
+## Dashboard
+
+A Streamlit app (`dashboard.py`) gives the match history a usable face: a filterable table of every matched and ambiguous posting, showing company, title, location, and the date each posting was first matched. Filter by company, tier (match / ambiguous), or date range.
+
+```bash
+streamlit run dashboard.py
+```
+
+The dashboard reads `seen_jobs.json`, and the path is configurable so anyone who forks the repo can point it at their own data without editing code:
+
+```bash
+SEEN_JOBS_PATH=/path/to/seen_jobs.json streamlit run dashboard.py
+streamlit run dashboard.py -- --seen-jobs /path/to/seen_jobs.json
+```
 
 ## Getting Started
 
@@ -89,7 +105,7 @@ Run all tests with:
 pytest tests/
 ```
 
-33 tests across three modules covering the security-critical infrastructure: rate limiter (6 tests), robots.txt compliance checker (12 tests), and audit logging / hard-stop detection (15 tests). Tests use `unittest.mock` to avoid real network or filesystem I/O and are safe to run without configuration.
+51 tests across five modules covering the security-critical infrastructure and the dashboard data layer: rate limiter (6 tests), robots.txt compliance checker (12 tests), audit logging / hard-stop detection (15 tests), seen_jobs enrichment (6 tests), and dashboard flattening, filtering, and path resolution (12 tests). Tests use `unittest.mock` to avoid real network or filesystem I/O and are safe to run without configuration.
 
 ### Optional: Pre-Commit Hook
 
@@ -108,11 +124,18 @@ python job_monitor.py
 
 New matches get logged to `seen_jobs.json` and emailed if they pass the filters. Already-seen postings are skipped on future runs.
 
+To view the tracked postings in the dashboard:
+
+```bash
+streamlit run dashboard.py
+```
+
 ## Project Structure
 
 ```
 JobMonitoring/
   job_monitor.py              Main orchestrator / entrypoint
+  dashboard.py                Streamlit dashboard (jobs viewer)
   config.json                 Company list and filter configuration
   config.example.json         Template config for new users
   .env                        Email credentials (not committed)
@@ -132,10 +155,12 @@ JobMonitoring/
     audit_log.py              Dual-stream audit + operational logging
     notifier.py               HTML email notifications via Gmail SMTP
     date_utils.py             Date format converters per ATS
-  tests/                      Unit tests (33 total)
+  tests/                      Unit tests (51 total)
     test_rate_limiter.py      Rate limiter tests (6)
     test_robots_check.py      Robots.txt compliance tests (12)
     test_audit_log.py         Audit log and hard-stop tests (15)
+    test_seen_jobs.py         seen_jobs enrichment tests (6)
+    test_dashboard.py         Dashboard data-layer tests (12)
   logs/                       Runtime log files (gitignored)
   documentation/              Holds documentation and screenshots
   .github/

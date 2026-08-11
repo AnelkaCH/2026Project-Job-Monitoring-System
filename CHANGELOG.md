@@ -2,9 +2,25 @@
 
 ## [Unreleased]
 ### What To Expect
-- A working UI
+- A working UI (dashboard MVP is out; a fuller UI is the next step)
 - Scheduler
 - Many more things to come :D
+
+## [2026-08-11] v3.0 - Dashboard MVP: Jobs Viewer
+### Added
+- `dashboard.py` - Streamlit dashboard that reads the enriched `seen_jobs.json` and renders a filterable table of every matched and ambiguous posting (company, title, date matched). Filters by company, tier, and date range. Data path is configurable via the `SEEN_JOBS_PATH` env var or the `--seen-jobs` CLI flag so forks can point it at their own file without code changes.
+- `seen_jobs.json` enrichment - each company record now stores a `details` map (title, location, posted, posted_days_ago, link, ats, first_seen) alongside the dedup ID lists. `first_seen` records when a posting was first matched and is preserved across runs. Pre-v3.0 records are backfilled automatically on the next run.
+- `tests/test_seen_jobs.py` - 6 tests covering the enrichment logic: first_seen stamping, preservation across runs, ambiguous tracking, ATS stamping, and pre-v3.0 backfill.
+- `tests/test_dashboard.py` - 12 tests covering flattening (new and old formats), tier derivation, dataframe building (including tz normalization), date-range / company / ATS / tier filtering, and path resolution precedence.
+
+### Changed
+- `job_monitor.py` - persistence now writes the enriched record via `build_company_record()`; dedup identity (job ID per company) is unchanged.
+- `requirement.txt` - added `streamlit` and `pandas` for the dashboard.
+- `README.md` - Dashboard section, updated tech stack, test counts, and project structure.
+- `ARCHITECTURE.md` - updated diagram, `seen_jobs.json` schema, dashboard component, data flow, and design decisions.
+
+### Fixed
+- `dashboard.py` - date-range filter raised `TypeError` on tz-aware match dates; `build_dataframe()` now normalizes `date_matched` to tz-naive so the widget dates compare correctly.
 
 ## [2026-07-28] v2.4 - CI Pipeline
 ### Added

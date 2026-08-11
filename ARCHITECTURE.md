@@ -18,7 +18,9 @@ The system follows an **adapter pattern** -- a single orchestrator loop in `job_
                 |
         [Deduplication (seen_jobs.json)]
                 |
-        [Email Notification]
+        +-------+-------+
+        |               |
+[Email Notification]  [Dashboard (dashboard.py)]
 ```
 
 ## Key Components
@@ -97,16 +99,29 @@ This is intentionally separate from the rate limiter because they track fundamen
 
 ### Deduplication
 
-**What it does:** `seen_jobs.json` stores previously-seen job IDs per company under two keys:
+**What it does:** `seen_jobs.json` stores previously-seen job IDs per company under two keys, plus a `details` map (since v3.0) with the human-readable fields the dashboard renders:
 
 ```json
 {
   "Company Name": {
     "matched_ids": ["id1", "id2"],
-    "ambiguous_ids": ["id3", "id4"]
+    "ambiguous_ids": ["id3", "id4"],
+    "details": {
+      "id1": {
+        "title": "...",
+        "location": "...",
+        "posted": "...",
+        "posted_days_ago": 3,
+        "link": "...",
+        "ats": "greenhouse",
+        "first_seen": "2026-08-11T12:00:00+00:00"
+      }
+    }
   }
 }
 ```
+
+The `matched_ids` / `ambiguous_ids` lists are the dedup mechanism; `details` is enrichment for the viewer and never drives dedup decisions. `first_seen` records when a posting was first matched and is preserved across runs, so the dashboard can show a stable "date matched". `ats` is stamped at write time so the dashboard does not need to re-derive it from config.
 
 On each run, current job IDs are compared against stored IDs. Only truly new IDs (present in current results but absent from stored data) are reported. After processing, stored IDs are overwritten with the current full set.
 
@@ -121,6 +136,12 @@ On each run, current job IDs are compared against stored IDs. Only truly new IDs
 3. At least one flagged company (3+ consecutive skips)
 
 The HTML email contains green-bordered match cards, muted ambiguous rows, and amber flagged-company warnings. Credentials are read from environment variables via `python-dotenv`.
+
+### Dashboard
+
+**What it does:** `dashboard.py` is a Streamlit app that reads the enriched `seen_jobs.json` and renders a filterable table of every matched and ambiguous posting. Each row shows company, title, location, link, and the date the posting was first matched. Users can filter by company, tier (match / ambiguous), and date range.
+
+The dashboard is a pure read-side view: it never writes to the file and never fetches live data. The data path is configurable via the `SEEN_JOBS_PATH` env var or the `--seen-jobs` CLI flag (flag wins, then env var, then the repo-relative default), so forks can point it at their own data file without code changes. Pre-v3.0 records (no `details` map) are rendered with the job ID as a stand-in title and blank dates rather than crashing the view; they get real dates once `job_monitor.py` runs and backfills them.
 
 ### Tier 3 Hard-Stop
 
@@ -180,10 +201,12 @@ A complete run cycle in `job_monitor.py`:
    e. Run `matches_filters()` on each job to classify as match/ambiguous/no_match.
    f. Deduplicate against `seen_jobs[company]` -- only new IDs are collected.
    g. Log `CLASSIFY` audit event with match/ambiguous/new counts.
-   h. Update `seen_jobs[company]` with current IDs.
+   h. Update `seen_jobs[company]` with current IDs plus the enriched `details` (title, link, ats, `first_seen`) via `build_company_record()`.
 5. **`save_seen_jobs()`** -- Persist the updated dedup state to disk.
 6. Log the summary of new matches, ambiguous jobs, and flagged companies.
 7. **`send_notification()`** -- Build and send the HTML email if there is anything to report.
+
+Outside the run cycle, `dashboard.py` reads `seen_jobs.json` and renders the same records as a filterable table, so the monitor's output has both an email view and a web view of the same underlying data.
 
 ## Known Limitations / Future Work
 
@@ -193,6 +216,8 @@ A complete run cycle in `job_monitor.py`:
 
 - **No scheduler wired yet** -- The system is designed to run on a schedule (GitHub Actions), but the scheduling configuration is not yet documented or finalized. Currently each run must be triggered manually or via an external scheduler.
 
-- **Test coverage** -- Unit tests cover the three security-critical modules: rate limiter (6 tests in `tests/test_rate_limiter.py`), robots.txt compliance checker (12 tests in `tests/test_robots_check.py`), and audit logging / hard-stop detection (15 tests in `tests/test_audit_log.py`). Adapters, classification, and notification are not yet covered.
+- **Pre-v3.0 dates** -- Postings tracked before v3.0 have no recorded match date; `job_monitor.py` backfills their `first_seen` with the timestamp of the first run after the upgrade, so those rows approximate rather than reflect the true match date.
 
-- **Minimal dependencies** -- Runtime: only `requests` and `python-dotenv`. Everything else (robotparser, JSON, logging, SMTP, datetime, collections, dataclasses) is Python stdlib. Testing requires `pytest` (listed in `requirements-dev.txt`). This is intentional for security and portability but means some features (e.g., HTML parsing) require manual implementation.
+- **Test coverage** -- Unit tests cover the security-critical modules plus the new data layer: rate limiter (6 tests in `tests/test_rate_limiter.py`), robots.txt compliance checker (12 tests in `tests/test_robots_check.py`), audit logging / hard-stop detection (15 tests in `tests/test_audit_log.py`), seen_jobs enrichment (6 tests in `tests/test_seen_jobs.py`), and dashboard flattening, filtering, and path resolution (12 tests in `tests/test_dashboard.py`). Adapters, classification, and notification are not yet covered.
+
+- **Minimal dependencies** -- Runtime: `requests` and `python-dotenv` for the monitor core, plus `streamlit` and `pandas` for the dashboard. Everything else (robotparser, JSON, logging, SMTP, datetime, collections, dataclasses) is Python stdlib. Testing requires `pytest` (listed in `requirements-dev.txt`). This is intentional for security and portability but means some features (e.g., HTML parsing) require manual implementation.
