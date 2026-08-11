@@ -15,7 +15,11 @@ from datetime import datetime, timezone
 from utils.audit_log import setup_logging, log_audit_event
 from adapters.connectors import CONNECTORS
 from utils.robots_check import SkipReason
-from adapters.custom_handlers import CUSTOM_HANDLERS
+# for the sake of the ci pipeline, we allow the custom_handlers module to be missing (it is not included in the repo)
+try:
+    from adapters.custom_handlers import CUSTOM_HANDLERS
+except ModuleNotFoundError:
+    CUSTOM_HANDLERS = {}
 from utils.notifier import send_notification
 from utils.skip_tracker import SkipTracker
 

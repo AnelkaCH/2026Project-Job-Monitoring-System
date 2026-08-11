@@ -6,6 +6,17 @@
 - Scheduler
 - Many more things to come :D
 
+## [2026-08-11] v3.0.1 - Fixing CI Pipeline issue with custom handlers
+### Added
+- (none)
+
+### Changed
+- (none)
+
+### Fixed
+- Since the repository doesn't have `custom_handler.py`, the CI pipeline will fail. So, I made it optional in `job_monitor.py`.
+
+
 ## [2026-08-11] v3.0 - Dashboard MVP: Jobs Viewer
 ### Added
 - `dashboard.py` - Streamlit dashboard that reads the enriched `seen_jobs.json` and renders a filterable table of every matched and ambiguous posting (company, title, date matched). Filters by company, tier, and date range. Data path is configurable via the `SEEN_JOBS_PATH` env var or the `--seen-jobs` CLI flag so forks can point it at their own file without code changes.
