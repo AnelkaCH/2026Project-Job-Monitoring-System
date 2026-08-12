@@ -179,6 +179,10 @@ def main():
     col4.metric("Ambiguous", int((df["tier"] == "ambiguous").sum()))
 
     st.subheader(f"Postings ({len(filtered)})")
+    # Streamlit auto-escapes cell text by default, so this table renders
+    # untrusted posting text safely without unsafe_allow_html anywhere in
+    # this file (storage-time sanitization in utils/schema.py is the first
+    # line of defense; this default escaping is intentional second).
     st.dataframe(
         filtered[["company", "title", "date_matched", "location", "posted_days_ago", "link"]],
         width="stretch",

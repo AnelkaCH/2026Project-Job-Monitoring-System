@@ -20,6 +20,20 @@ from utils.audit_log import log_audit_event
 from utils.date_utils import calculate_sap_days_ago, days_ago_from_iso, days_ago_from_unix_ms, days_ago_from_workday_text
 from utils.rate_limiter import RateLimiter, RateLimitExceeded
 from utils.robots_check import robots_checker, SkipReason
+from utils.schema import (
+    ALLOWED_LINK_DOMAINS,
+    AshbyJob,
+    GreenhouseJob,
+    LeverJob,
+    PersonioJob,
+    RecruiteeJob,
+    SapPayload,
+    SmartRecruitersJob,
+    WorkableJob,
+    WorkdayJob,
+    validate_job_posting,
+    validate_raw_jobs,
+)
 from utils.skip_tracker import SkipTracker
 
 logger = logging.getLogger(__name__)
@@ -51,15 +65,17 @@ def fetch_greenhouse(company): # Working
     data = response.json()
 
     jobs = []
-    for job in data.get("jobs", []):
-        jobs.append({
+    for job in validate_raw_jobs(data.get("jobs", []), GreenhouseJob, "greenhouse", name):
+        posting = validate_job_posting({
             "id": str(job.get("id")),
             "title": job.get("title", "Untitled"),
             "location": job.get("location", {}).get("name", "Unknown"),
             "posted": job.get("updated_at", ""),
             "posted_days_ago": days_ago_from_iso(job.get("updated_at")),
             "link": job.get("absolute_url", "")
-        })
+        }, ats="greenhouse", company=name, allowed_domains=ALLOWED_LINK_DOMAINS["greenhouse"])
+        if posting is not None:
+            jobs.append(posting)
     return jobs
 
 
@@ -88,15 +104,17 @@ def fetch_lever(company): # Working
     data = response.json()
 
     jobs = []
-    for job in data:
-        jobs.append({
+    for job in validate_raw_jobs(data, LeverJob, "lever", name):
+        posting = validate_job_posting({
             "id": job.get("id", ""),
             "title": job.get("text", "Untitled"),
             "location": job.get("categories", {}).get("location", "Unknown"),
             "posted": str(job.get("createdAt", "")),
             "posted_days_ago": days_ago_from_unix_ms(job.get("createdAt")),
             "link": job.get("hostedUrl", "")
-        })
+        }, ats="lever", company=name, allowed_domains=ALLOWED_LINK_DOMAINS["lever"])
+        if posting is not None:
+            jobs.append(posting)
     return jobs
 
 
@@ -125,15 +143,17 @@ def fetch_ashby(company): # Not Working (robots.txt disallowed)
     data = response.json()
 
     jobs = []
-    for job in data.get("jobs", []):
-        jobs.append({
+    for job in validate_raw_jobs(data.get("jobs", []), AshbyJob, "ashby", name):
+        posting = validate_job_posting({
             "id": job.get("id", ""),
             "title": job.get("title", "Untitled"),
             "location": job.get("location", "Unknown"),
             "posted": job.get("publishedAt", ""),
             "posted_days_ago": days_ago_from_iso(job.get("publishedAt")),
             "link": job.get("jobUrl", "")
-        })
+        }, ats="ashby", company=name, allowed_domains=ALLOWED_LINK_DOMAINS["ashby"])
+        if posting is not None:
+            jobs.append(posting)
     return jobs
 
 
@@ -172,7 +192,7 @@ def fetch_smartrecruiters(company): # Not Working (robots.txt disallowed)
         data = response.json()
 
         postings = data.get("content", [])
-        all_postings.extend(postings)
+        all_postings.extend(validate_raw_jobs(postings, SmartRecruitersJob, "smartrecruiters", name))
 
         total_found = data.get("totalFound", 0)
         offset += len(postings)
@@ -189,14 +209,16 @@ def fetch_smartrecruiters(company): # Not Working (robots.txt disallowed)
             location.get("city"), location.get("region"), location.get("country")
         ])) or "Unknown"
 
-        jobs.append({
+        posting = validate_job_posting({
             "id": job.get("id", ""),
             "title": job.get("name", "Untitled"),
             "location": location_text,
             "posted": job.get("releasedDate", ""),
             "posted_days_ago": days_ago_from_iso(job.get("releasedDate")),
             "link": job.get("ref", "")
-        })
+        }, ats="smartrecruiters", company=name, allowed_domains=ALLOWED_LINK_DOMAINS["smartrecruiters"])
+        if posting is not None:
+            jobs.append(posting)
     return jobs
 
 
@@ -225,15 +247,17 @@ def fetch_recruitee(company): # Working
     data = response.json()
 
     jobs = []
-    for job in data.get("offers", []):
-        jobs.append({
+    for job in validate_raw_jobs(data.get("offers", []), RecruiteeJob, "recruitee", name):
+        posting = validate_job_posting({
             "id": str(job.get("id", "")),
             "title": job.get("title", "Untitled"),
             "location": job.get("city", "Unknown") or "Unknown",
             "posted": job.get("created_at", ""),
             "posted_days_ago": days_ago_from_iso(job.get("created_at")),
             "link": job.get("careers_url", "")
-        })
+        }, ats="recruitee", company=name, allowed_domains=ALLOWED_LINK_DOMAINS["recruitee"])
+        if posting is not None:
+            jobs.append(posting)
     return jobs
 
 
@@ -270,7 +294,7 @@ def fetch_workable(company): # Not Working (robots.txt disallowed)
         data = response.json()
 
         results = data.get("results", [])
-        all_results.extend(results)
+        all_results.extend(validate_raw_jobs(results, WorkableJob, "workable", name))
 
         next_page = data.get("nextPage")
         if not next_page or not results:
@@ -287,14 +311,16 @@ def fetch_workable(company): # Not Working (robots.txt disallowed)
         ])) or "Unknown"
 
         shortcode = job.get("shortcode", "")
-        jobs.append({
+        posting = validate_job_posting({
             "id": str(job.get("id", "")),
             "title": job.get("title", "Untitled"),
             "location": location_text,
             "posted": job.get("published", ""),
             "posted_days_ago": days_ago_from_iso(job.get("published")),
             "link": f"https://apply.workable.com/{slug}/j/{shortcode}/"
-        })
+        }, ats="workable", company=name, allowed_domains=ALLOWED_LINK_DOMAINS["workable"])
+        if posting is not None:
+            jobs.append(posting)
     return jobs
 
 
@@ -334,15 +360,17 @@ def fetch_personio(company): # Working
     data = response.json()
 
     jobs = []
-    for job in data:
-        jobs.append({
+    for job in validate_raw_jobs(data, PersonioJob, "personio", name):
+        posting = validate_job_posting({
             "id": str(job.get("id", "")),
             "title": job.get("name", "Untitled"),
             "location": job.get("office", "Unknown"),
             "posted": "",
             "posted_days_ago": None,
             "link": f"https://{slug}.jobs.personio.{domain}/job/{job.get('id', '')}"
-        })
+        }, ats="personio", company=name, allowed_domains=ALLOWED_LINK_DOMAINS["personio"])
+        if posting is not None:
+            jobs.append(posting)
     return jobs
 
 
@@ -385,7 +413,7 @@ def fetch_workday(company): # Working
         data = response.json()
 
         postings = data.get("jobPostings", [])
-        raw_jobs.extend(postings)
+        raw_jobs.extend(validate_raw_jobs(postings, WorkdayJob, "workday", name))
 
         total = data.get("total", 0)
         offset += page_size
@@ -398,14 +426,16 @@ def fetch_workday(company): # Working
     jobs = []
     for job in raw_jobs:
         external_path = job.get("externalPath", "")
-        jobs.append({
+        posting = validate_job_posting({
             "id": external_path,
             "title": job.get("title", "Untitled"),
             "location": job.get("locationsText", "Unknown"),
             "posted": job.get("postedOn", ""),
             "posted_days_ago": days_ago_from_workday_text(job.get("postedOn")),
             "link": job_base_url + external_path
-        })
+        }, ats="workday", company=name, allowed_domains=ALLOWED_LINK_DOMAINS["workday"])
+        if posting is not None:
+            jobs.append(posting)
     return jobs
 
 def fetch_sap(company): # Not Working (robots.txt disallowed)
@@ -459,7 +489,7 @@ def fetch_sap(company): # Not Working (robots.txt disallowed)
         if not postings:
             break
 
-        all_jobs.extend(postings)
+        all_jobs.extend(validate_raw_jobs(postings, SapPayload, "sap", name))
 
         page += 1
 
@@ -467,8 +497,10 @@ def fetch_sap(company): # Not Working (robots.txt disallowed)
 
     jobs = []
 
+    sap_domain = urlparse(job_base_url).netloc
+
     for item in all_jobs:
-        job = item.get("response", {})
+        job = item.get("response") or {}
 
         title = job.get("unifiedStandardTitle") or job.get("title") or "Untitled"
 
@@ -485,15 +517,16 @@ def fetch_sap(company): # Not Working (robots.txt disallowed)
         if posted_days_ago is None or posted_days_ago > 30:
             continue
 
-        jobs.append({
+        posting = validate_job_posting({
             "id": job_id,
             "title": title,
             "location": location,
-            "posted": job.get("unifiedStandardStart", ""),
             "posted": posted,
             "posted_days_ago": posted_days_ago,
             "link": f"{job_base_url}{slug}"
-        })
+        }, ats="sap", company=name, allowed_domains=(sap_domain,))
+        if posting is not None:
+            jobs.append(posting)
 
     return jobs
 

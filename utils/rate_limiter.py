@@ -20,9 +20,12 @@ class PlatformConfig:
     max_backoff_seconds: float = 60.0   # cap so a bad run doesn't sleep for minutes
  
  
-# All 8 platforms start on the same conservative default. Tighten or loosen
-# individual platforms here as you observe real behavior or find published
-# limits, without touching any logic below.
+# All standard platforms start on the same conservative default. Tighten or
+# loosen individual platforms here as you observe real behavior or find
+# published limits, without touching any logic below. Custom handler
+# platform names are intentionally absent here: they get DEFAULT_CONFIG via
+# the _config_for() fallback, so adding a handler needs no rate-limiter
+# changes.
 PLATFORM_CONFIGS: Dict[str, PlatformConfig] = {
     "greenhouse": PlatformConfig(),
     "workday": PlatformConfig(),
@@ -33,7 +36,6 @@ PLATFORM_CONFIGS: Dict[str, PlatformConfig] = {
     "workable": PlatformConfig(),
     "personio": PlatformConfig(),
     "sap": PlatformConfig(),
-    "accenture": PlatformConfig(),  # custom handler, not a standard ATS, but still needs its own bucket
 }
  
 DEFAULT_CONFIG = PlatformConfig()

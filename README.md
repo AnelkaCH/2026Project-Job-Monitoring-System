@@ -39,11 +39,11 @@ I was tracking internship and job openings across cybersecurity, cloud, and tech
 
 ## Tech Stack
 
-`Python` `requests` `python-dotenv` `streamlit` `pandas`
+`Python` `requests` `python-dotenv` `streamlit` `pandas` `pydantic` `bleach`
 
 ## How It Works
 
-The system runs on a scheduled GitHub Actions job (not yet available). Each cycle, it iterates through configured companies, dispatches to the appropriate ATS adapter, checks robots.txt compliance, and fetches job listings through the rate limiter. Results are classified by keyword and location filters, deduplicated against previously seen postings, and new matches trigger an HTML email notification. Companies that fail repeatedly (rate-limited, bot-detected, or robots.txt-disallowed) are flagged for manual review after three consecutive skips.
+The system runs on a scheduled GitHub Actions job (not yet available). Each cycle, it iterates through configured companies, dispatches to the appropriate ATS adapter, checks robots.txt compliance, and fetches job listings through the rate limiter. Every ATS response is validated against a per-platform schema and sanitized (HTML tags stripped with `bleach`, links checked to be `https` on the expected domain) before normalization, with anything rejected logged as a `VALIDATION_REJECTED` audit event. Results are classified by keyword and location filters, deduplicated against previously seen postings, and new matches trigger an HTML email notification. Companies that fail repeatedly (rate-limited, bot-detected, or robots.txt-disallowed) are flagged for manual review after three consecutive skips.
 
 ## Dashboard
 
@@ -105,7 +105,7 @@ Run all tests with:
 pytest tests/
 ```
 
-51 tests across five modules covering the security-critical infrastructure and the dashboard data layer: rate limiter (6 tests), robots.txt compliance checker (12 tests), audit logging / hard-stop detection (15 tests), seen_jobs enrichment (6 tests), and dashboard flattening, filtering, and path resolution (12 tests). Tests use `unittest.mock` to avoid real network or filesystem I/O and are safe to run without configuration.
+99 tests across six modules covering the security-critical infrastructure and the dashboard data layer: rate limiter (6 tests), robots.txt compliance checker (12 tests), audit logging / hard-stop detection (15 tests), seen_jobs enrichment (6 tests), dashboard flattening, filtering, and path resolution (12 tests), and input validation / sanitization (48 tests, one skipped by design for the SAP optional-title case). Tests use `unittest.mock` to avoid real network or filesystem I/O and are safe to run without configuration.
 
 ### Optional: Pre-Commit Hook
 
@@ -146,7 +146,7 @@ JobMonitoring/
   LICENSE                     MIT License
   adapters/                   ATS-specific fetch logic
     connectors.py             9 standard ATS adapters
-    custom_handlers.py        Private custom handlers (e.g., Accenture)
+    custom_handlers.py        Private custom handlers
     custom_handler_example.py Template for new custom handlers
   utils/                      Shared infrastructure
     rate_limiter.py           Per-company rate limiting + backoff

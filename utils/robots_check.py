@@ -126,10 +126,23 @@ _COMPLIANCE_URLS = {
     "sap":              lambda c: _split_url(c.get("sap_url", "")),
 }
 
-# Custom handlers whose endpoint URLs are known and public.
-_CUSTOM_COMPLIANCE_URLS = {
-    "accenture": lambda c: ("https://www.accenture.com", "/api/accenture/elastic/findjobs"),
-}
+# Custom handler endpoint URLs are kept out of this file on purpose: real
+# handlers live in the gitignored adapters/custom_handlers.py, so no
+# company-specific details ever land in committed code. The registry is
+# filled at CLI runtime by the loader below; when that module is absent
+# (CI, fresh forks), it stays empty and the CLI reports an unknown URL
+# pattern for any custom handler.
+_CUSTOM_COMPLIANCE_URLS = {}
+
+
+def _load_custom_compliance_urls():
+    # Mirrors job_monitor.py's optional-import pattern so the CLI still
+    # works when the private handler module is not present in the repo.
+    try:
+        from adapters.custom_handlers import COMPLIANCE_URLS as private_urls
+        return dict(private_urls)
+    except ModuleNotFoundError:
+        return {}
 
 
 def _split_url(url: str):
@@ -152,6 +165,8 @@ def _run_compliance_check():
     passed = 0
     failed = 0
 
+    custom_urls = _load_custom_compliance_urls()
+
     print(f"Robots.txt compliance check for {total} companies:\n")
 
     for company in companies:
@@ -160,7 +175,7 @@ def _run_compliance_check():
 
         if ats == "custom":
             handler = company.get("handler", "")
-            url_fn = _CUSTOM_COMPLIANCE_URLS.get(handler)
+            url_fn = custom_urls.get(handler)
             if url_fn is None:
                 print(f"  {name:30s} custom handler '{handler}' - unknown URL pattern")
                 continue

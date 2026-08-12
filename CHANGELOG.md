@@ -6,6 +6,23 @@
 - Scheduler
 - Many more things to come :D
 
+## [2026-08-12] v3.1 - Input Validation & Sanitization (on API responses)
+### Added
+- `utils/schema.py` - One pydantic model per ATS that validates the raw response shape each ATS actually returns, plus `JobPosting` (the shared normalized 6-field dict) and the `ALLOWED_LINK_DOMAINS` allowlist. `validate_raw_jobs()` and `validate_job_posting()` are the two gates every adapter routes data through.
+- **HTML sanitization at storage time** - Description-bearing fields (when present) plus the stored `title`/`location` fields are tag-stripped with `bleach.clean()` (tags stripped, not escaped), so `seen_jobs.json` never holds raw markup.
+- **URL validation** - Job links must be `https` and point at the expected ATS domain (exact match, or subdomain suffix for `*.recruitee.com`, `*.myworkdayjobs.com`, `*.jobs.personio.{de,com}`). SAP and Workday links are config-derived, so their expected domain is supplied at call time.
+- **`VALIDATION_REJECTED` audit event** - Any response item or normalized dict that fails validation is logged via `log_audit_event()` with a reason (`response_shape`, `schema_violation`, or `url_rejected`) and dropped, never silently stored.
+- `tests/test_schema.py` - 48 tests covering every raw model (valid pass, missing required field dropped + audited), raw HTML stripping, normalized-gate sanitization, URL scheme/domain rules (including subdomain suffix and SAP config-derived domains), empty-link passthrough, and the local-model pattern custom handlers use.
+
+### Changed
+- `adapters/connectors.py` - All 9 connectors validate each API response with its ATS model right after `response.json()` (inside pagination loops where applicable) and pass every normalized dict through `validate_job_posting()` before appending.
+- `adapters/custom_handler_example.py` - Template now models the bespoke response schema with a local pydantic model, validates the feed through `validate_raw_jobs()` before parsing, passes every normalized dict through `validate_job_posting()`, and includes the robots.txt compliance check, so new custom handlers built from it follow the same validation and compliance posture as the standard ATS connectors.
+- `requirement.txt` - Added `pydantic` and `bleach`.
+- `dashboard.py` - Comment documenting that Streamlit auto-escapes cell text by default and `unsafe_allow_html` is intentionally never used (defense-in-depth on top of storage-time sanitization). No behavior change.
+
+### Fixed
+- `adapters/connectors.py` - SAP connector previously wrote the `posted` field twice in its normalized dict (duplicate key); the redundant entry is removed.
+
 ## [2026-08-11] v3.0.1 - Fixing CI Pipeline issue with custom handlers
 ### Added
 - (none)
@@ -129,7 +146,6 @@
 
 ### Changed
 - All 9 adapters in `connectors.py` now check robots.txt and return `SkipReason` on disallow.
-- `custom_handlers.py` - Accenture handler gets the same robots.txt check.
 - `job_monitor.py` - Distinguishes robots.txt disallows from rate-limit skips in output.
 - `notifier.py` - "Repeatedly rate-limited" wording updated to "Repeatedly skipped."
 
@@ -164,7 +180,6 @@
 
 ### Changed
 - All 9 adapters in `connectors.py` route HTTP calls through `limiter.get()`/`limiter.post()` instead of raw `requests`. Return `None` on skip.
-- `custom_handlers.py` - Accenture handler gets the same rate-limiter treatment.
 - `job_monitor.py` - Handles `None` returns (skip) without crashing or wiping dedup baselines.
 - `notifier.py` - Email now includes a flagged-companies amber-warning section when a skip streak crosses the threshold of 3.
 - Return contract change: fetch functions can now return `None` (not checked) vs `[]` (checked, no jobs found). `None` skips the `seen_jobs.json` update so rate-limited companies don't have their history erased.

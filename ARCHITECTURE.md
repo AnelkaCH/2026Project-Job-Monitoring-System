@@ -2,7 +2,7 @@
 
 ## Overview
 
-The system follows an **adapter pattern** -- a single orchestrator loop in `job_monitor.py` delegates to platform-specific adapter functions (Greenhouse, Lever, Ashby, etc.), each of which normalizes results into a shared 6-field job schema before they hit the classification layer. Every adapter routes HTTP calls through a shared rate limiter and checks robots.txt compliance before the first request.
+The system follows an **adapter pattern** -- a single orchestrator loop in `job_monitor.py` delegates to platform-specific adapter functions (Greenhouse, Lever, Ashby, etc.), each of which normalizes results into a shared 6-field job schema before they hit the classification layer. Every adapter routes HTTP calls through a shared rate limiter and checks robots.txt compliance before the first request. Since v3.1, every ATS response is also validated and sanitized by `utils/schema.py` before normalization, so untrusted external text and URLs are checked at the boundary.
 
 ```
 [Config/Scheduler] -> [Orchestrator (job_monitor.py)]
@@ -13,7 +13,9 @@ The system follows an **adapter pattern** -- a single orchestrator loop in `job_
         (9 standard ATS)       (company-specific)
                 |                      |
         [Rate Limiter]  <---  [Robots Checker]
-                |                      |
+                |
+        [Validation & Sanitization (utils/schema.py)]
+                |
         [Classification / Filtering]
                 |
         [Deduplication (seen_jobs.json)]
@@ -27,7 +29,7 @@ The system follows an **adapter pattern** -- a single orchestrator loop in `job_
 
 ### Adapter Layer
 
-**What it does:** Each ATS platform gets its own fetch function in `adapters/connectors.py`, all following the same pattern: build the URL, check robots.txt, route through the rate limiter, parse the response, normalize into the shared 6-field dict format, return a list of jobs or a `SkipReason`.
+**What it does:** Each ATS platform gets its own fetch function in `adapters/connectors.py`, all following the same pattern: build the URL, check robots.txt, route through the rate limiter, parse the response, validate and sanitize it, normalize into the shared 6-field dict format, return a list of jobs or a `SkipReason`. Every raw response item and every normalized dict passes through the validation gates in `utils/schema.py` (see below) before it is stored.
 
 **Why it is separated this way:** Adding a new ATS means writing one new function and adding it to the `CONNECTORS` dict -- no changes to the orchestrator, classification, or notification logic. The dict-based dispatch replaces what would otherwise be a long if/elif chain.
 
@@ -43,6 +45,18 @@ The shared job schema has exactly six fields:
     "link":            str,    # full URL to the job posting
 }
 ```
+
+### Input Validation and Sanitization
+
+**What it does:** `utils/schema.py` is the single validation chokepoint every adapter routes its data through, protecting the dashboard (and the email) from untrusted external text -- a stored-XSS surface since ATS content is rendered in a UI.
+
+Two gates run, in order:
+
+1. **Raw response models** -- One pydantic model per ATS mirrors the response shape that ATS actually returns, with the fields its adapter reads. `validate_raw_jobs()` calls `model.model_validate()` on every item right after `response.json()`, so a malformed response is caught at the boundary. HTML-bearing description fields are tag-stripped with `bleach.clean()` (tags stripped, not escaped) before normalization ever reads them.
+
+2. **Normalized gate** -- `JobPosting` models the shared 6-field dict and `validate_job_posting()` re-cleans the stored text fields (`title`, `location`) and enforces the link policy: the scheme must be `https` and the host must match the expected ATS domain from `ALLOWED_LINK_DOMAINS` (subdomain suffixes for `*.recruitee.com` and `*.myworkdayjobs.com`; SAP and Workday links are config-derived so their expected domain is supplied at call time). An empty link still passes, matching pre-v3.1 behavior.
+
+Anything that fails either gate is dropped and recorded via `log_audit_event(event_type="VALIDATION_REJECTED", ...)` with a `reason` of `response_shape`, `schema_violation`, or `url_rejected`. Rejected data is never silently stored. Because sanitization happens at storage time, `seen_jobs.json` never holds raw markup. Streamlit auto-escapes cell text by default and `dashboard.py` never uses `unsafe_allow_html`, so the dashboard has defense-in-depth on top of storage-time cleaning.
 
 ### Classification / Tiering
 
@@ -83,7 +97,7 @@ If retries are exhausted, `RateLimitExceeded` is raised rather than looping fore
 | Audit | `logs/audit.log` | JSON lines | 5 MB | 5 |
 | Operational | `logs/operational.log` | Timestamped text | 5 MB | 3 |
 
-Four audit event types are recorded: `QUERY` (before an adapter call), `SKIP` (when a company is skipped), `CLASSIFY` (filtering results per company), and `TIER3_HARDSTOP` (when bot-detection signals are detected or retries exhausted).
+Five audit event types are recorded: `QUERY` (before an adapter call), `SKIP` (when a company is skipped), `CLASSIFY` (filtering results per company), `TIER3_HARDSTOP` (when bot-detection signals are detected or retries exhausted), and `VALIDATION_REJECTED` (when an ATS response or normalized job fails the `utils/schema.py` gates).
 
 ### Skip Tracking
 
@@ -175,6 +189,9 @@ This check runs inside the rate limiter on every successful response. If trigger
 - **Decision:** Separate `rate_limiter.py` and `skip_tracker.py` instead of one module.
   **Reasoning:** They track fundamentally different state (in-memory timing vs persistent skip streaks). Combining them would conflate two concerns with different lifespans, persistence requirements, and failure semantics. The separation keeps each module's contract simple.
 
+- **Decision:** Validate and sanitize ATS data at the boundary, before normalization.
+  **Reasoning:** Job titles, companies, and descriptions are untrusted external text that eventually renders in a UI (dashboard, email). Validating the raw response shape catches an ATS "starting to return garbage" at the source with an audit trail, and stripping HTML tags at storage time means `seen_jobs.json` itself never holds raw markup -- Streamlit's auto-escaping is then a second layer, not the only one.
+
 - **Decision:** Pre-commit `detect-secrets` hook to prevent credential leaks.
   **Reasoning:** `.gitignore` protects `.env` but does not catch credentials accidentally hardcoded during debugging. A pre-commit hook scanning staged changes is the standard defense-in-depth measure for this class of mistake.
 
@@ -218,6 +235,6 @@ Outside the run cycle, `dashboard.py` reads `seen_jobs.json` and renders the sam
 
 - **Pre-v3.0 dates** -- Postings tracked before v3.0 have no recorded match date; `job_monitor.py` backfills their `first_seen` with the timestamp of the first run after the upgrade, so those rows approximate rather than reflect the true match date.
 
-- **Test coverage** -- Unit tests cover the security-critical modules plus the new data layer: rate limiter (6 tests in `tests/test_rate_limiter.py`), robots.txt compliance checker (12 tests in `tests/test_robots_check.py`), audit logging / hard-stop detection (15 tests in `tests/test_audit_log.py`), seen_jobs enrichment (6 tests in `tests/test_seen_jobs.py`), and dashboard flattening, filtering, and path resolution (12 tests in `tests/test_dashboard.py`). Adapters, classification, and notification are not yet covered.
+- **Test coverage** -- Unit tests cover the security-critical modules plus the new data layer: rate limiter (6 tests in `tests/test_rate_limiter.py`), robots.txt compliance checker (12 tests in `tests/test_robots_check.py`), audit logging / hard-stop detection (15 tests in `tests/test_audit_log.py`), seen_jobs enrichment (6 tests in `tests/test_seen_jobs.py`), dashboard flattening, filtering, and path resolution (12 tests in `tests/test_dashboard.py`), and input validation / sanitization (48 tests in `tests/test_schema.py`). Adapters, classification, and notification are not yet covered.
 
-- **Minimal dependencies** -- Runtime: `requests` and `python-dotenv` for the monitor core, plus `streamlit` and `pandas` for the dashboard. Everything else (robotparser, JSON, logging, SMTP, datetime, collections, dataclasses) is Python stdlib. Testing requires `pytest` (listed in `requirements-dev.txt`). This is intentional for security and portability but means some features (e.g., HTML parsing) require manual implementation.
+- **Minimal dependencies** -- Runtime: `requests` and `python-dotenv` for the monitor core, plus `streamlit` and `pandas` for the dashboard. Since v3.1, `pydantic` (response validation) and `bleach` (HTML sanitization) are runtime dependencies too. Everything else (robotparser, JSON, logging, SMTP, datetime, collections, dataclasses) is Python stdlib. Testing requires `pytest` (listed in `requirements-dev.txt`). This is intentional for security and portability but means some features (e.g., HTML parsing) require manual implementation.
