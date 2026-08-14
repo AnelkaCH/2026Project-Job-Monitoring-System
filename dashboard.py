@@ -28,7 +28,7 @@ except ImportError:
     st = None
     _STREAMLIT_AVAILABLE = False
 
-DEFAULT_SEEN_JOBS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "seen_jobs.json")
+DEFAULT_SEEN_JOBS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "seen_jobs.json")
 
 # Dashboard theming (v3.1.1). The stylesheet lives in its own file so it
 # stays maintainable, and it is wrapped in a <style> tag here (required for
@@ -37,7 +37,7 @@ DEFAULT_SEEN_JOBS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__))
 # is safe. Posting text is still never passed through it (see the table note
 # below); the only dynamic values rendered into markup go through
 # html.escape() first.
-DASHBOARD_CSS_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "win95_theme.css")
+DASHBOARD_CSS_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static", "win95_theme.css")
 
 
 def load_dashboard_css():

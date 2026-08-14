@@ -6,6 +6,25 @@
 - Scheduler
 - Many more things to come :D
 
+## [2026-08-14] v3.1.2 - Project Structure Refactor
+### Added
+- `static/` directory - `win95_theme.css` moved here from the project root to keep UI assets co-located with the dashboard instead of sitting beside source modules.
+- `data/` directory - Runtime-generated state files (`seen_jobs.json`, `skip_history.json`) moved here from the project root. The directory is tracked via a `.gitkeep`; the files themselves remain gitignored per the existing policy.
+- `adapters/greenhouse.py`, `adapters/lever.py`, `adapters/ashby.py`, `adapters/smartrecruiters.py`, `adapters/recruitee.py`, `adapters/workable.py`, `adapters/personio.py`, `adapters/workday.py`, `adapters/sap.py` - Each ATS adapter is now its own module, consistent with the adapter pattern described in `ARCHITECTURE.md`. Each file owns its own `logger`, `limiter`, and `skip_tracker`, matching the pattern established by `custom_handler_example.py`.
+
+### Changed
+- `adapters/connectors.py` - Reduced from a 546-line all-in-one file to a 26-line registry that imports each adapter from its own module and assembles the `CONNECTORS` dict. No behavior change; all imports in `job_monitor.py` remain unchanged.
+- `dashboard.py` - `DASHBOARD_CSS_PATH` updated to `static/win95_theme.css`; `DEFAULT_SEEN_JOBS_FILE` updated to `data/seen_jobs.json`.
+- `job_monitor.py` - `SEEN_JOBS_FILE` updated to `data/seen_jobs.json`.
+- `utils/skip_tracker.py` - `DEFAULT_PATH` updated to `data/skip_history.json` so both state files remain co-located.
+- `.gitignore` - Entries updated from `seen_jobs.json` / `skip_history.json` to `data/seen_jobs.json` / `data/skip_history.json`. Added `data/*` / `!data/.gitkeep` block.
+- `requirement.txt` renamed to `requirements.txt` (standard convention). `.github/workflows/tests.yml` updated to match.
+- `documentation/image.png` renamed to `documentation/operational_logs_example.png`.
+- `documentation/image1.png` renamed to `documentation/email_notification_example.png`.
+
+### Fixed
+- (none)
+
 ## [2026-08-14] v3.1.1 - Dashboard Theming Pass
 ### Added
 - `win95_theme.css` - Standalone Win95-chrome stylesheet (kept separate from the script for maintainability and wrapped in a `<style>` tag at injection time): light gray `#F0F0F0` main surface with classic gray `#C0C0C0` chrome, raised/inset beveled borders, Tahoma-led system font stack, chunky scrollbars, and ListView-style table chrome (white cells, gray header).

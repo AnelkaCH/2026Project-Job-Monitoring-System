@@ -1,9 +1,9 @@
-seen_jobs.json
+data/seen_jobs.json
 config.json
 opencode.json
 AGENTS.md
 *_raw.json
-skip_history.json
+data/skip_history.json
 
 __pycache__/
 *.pyc
@@ -29,3 +29,6 @@ custom_handlers.py
 
 logs/*
 !logs/.gitkeep
+
+data/*
+!data/.gitkeep

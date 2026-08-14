@@ -26,7 +26,7 @@ from utils.skip_tracker import SkipTracker
 operational_logger = logging.getLogger("job_monitor.operational")
  
 CONFIG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.json")
-SEEN_JOBS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "seen_jobs.json")
+SEEN_JOBS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "seen_jobs.json")
 
 skip_tracker = SkipTracker()
  

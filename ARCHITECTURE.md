@@ -29,9 +29,11 @@ The system follows an **adapter pattern** -- a single orchestrator loop in `job_
 
 ### Adapter Layer
 
-**What it does:** Each ATS platform gets its own fetch function in `adapters/connectors.py`, all following the same pattern: build the URL, check robots.txt, route through the rate limiter, parse the response, validate and sanitize it, normalize into the shared 6-field dict format, return a list of jobs or a `SkipReason`. Every raw response item and every normalized dict passes through the validation gates in `utils/schema.py` (see below) before it is stored.
+**What it does:** Each ATS platform gets its own module in `adapters/` (e.g., `adapters/greenhouse.py`, `adapters/lever.py`), each containing one fetch function that follows the same pattern: build the URL, check robots.txt, route through the rate limiter, parse the response, validate and sanitize it, normalize into the shared 6-field dict format, return a list of jobs or a `SkipReason`. Every raw response item and every normalized dict passes through the validation gates in `utils/schema.py` (see below) before it is stored.
 
-**Why it is separated this way:** Adding a new ATS means writing one new function and adding it to the `CONNECTORS` dict -- no changes to the orchestrator, classification, or notification logic. The dict-based dispatch replaces what would otherwise be a long if/elif chain.
+`adapters/connectors.py` is a thin registry that imports each fetch function from its own module and assembles the `CONNECTORS` dict. `job_monitor.py` looks up this dict instead of having an `if/elif` chain per ATS.
+
+**Why it is separated this way:** Adding a new ATS means writing one new module and adding one entry to the `CONNECTORS` dict -- no changes to the orchestrator, classification, or notification logic. Each adapter module is independently readable and testable.
 
 The shared job schema has exactly six fields:
 
@@ -101,14 +103,14 @@ Five audit event types are recorded: `QUERY` (before an adapter call), `SKIP` (w
 
 ### Skip Tracking
 
-**What it does:** `utils/skip_tracker.py` persists a consecutive skip count per company in `skip_history.json`. Each successful fetch resets the streak to zero. Companies at or above 3 consecutive skips are flagged in the email notification.
+**What it does:** `utils/skip_tracker.py` persists a consecutive skip count per company in `data/skip_history.json`. Each successful fetch resets the streak to zero. Companies at or above 3 consecutive skips are flagged in the email notification.
 
 This is intentionally separate from the rate limiter because they track fundamentally different state:
 
 | | Rate Limiter | Skip Tracker |
 |---|---|---|
 | Tracks | Request timing over the last ~60 seconds | Consecutive cycle skips per company |
-| Lifespan | In-memory, thrown away every run | Persisted to `skip_history.json` across runs |
+| Lifespan | In-memory, thrown away every run | Persisted to `data/skip_history.json` across runs |
 | Why | A 6-hour gap between cycles makes last run's timing meaningless | A pattern across cycles is the whole point |
 
 ### Deduplication
@@ -229,7 +231,7 @@ Outside the run cycle, `dashboard.py` reads `seen_jobs.json` and renders the sam
 
 - **Location filtering** -- There is a known issue with multiple locations. A job listing in "Singapore, Hong Kong, Tokyo" may not match a "singapore" filter correctly depending on the delimiter and formatting. This needs a more robust location-matching strategy.
 
-- **Stricter robots.txt on some ATS** -- SAP SuccessFactors, SmartRecruiters, Ashby, and Workable have stricter `robots.txt` rules that currently disallow the endpoints this system uses. The adapters remain in `connectors.py` but return `SkipReason` for any company on those platforms. If the platforms update their policies, the adapters will work without code changes.
+- **Stricter robots.txt on some ATS** -- SAP SuccessFactors, SmartRecruiters, Ashby, and Workable have stricter `robots.txt` rules that currently disallow the endpoints this system uses. The adapters remain in their own modules but return `SkipReason` for any company on those platforms. If the platforms update their policies, the adapters will work without code changes.
 
 - **No scheduler wired yet** -- The system is designed to run on a schedule (GitHub Actions), but the scheduling configuration is not yet documented or finalized. Currently each run must be triggered manually or via an external scheduler.
 

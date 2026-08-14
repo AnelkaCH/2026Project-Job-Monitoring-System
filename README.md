@@ -12,11 +12,11 @@ I was tracking internship and job openings across cybersecurity, cloud, and tech
 
 ### Logs
 
-![Logs](/documentation/image.png)
+![Logs](/documentation/operational_logs_example.png)
 
 ### Email Notification
 
-![Notification](/documentation/image1.png)
+![Notification](/documentation/email_notification_example.png)
 
 ## Documentation
 
@@ -72,7 +72,7 @@ streamlit run dashboard.py -- --seen-jobs /path/to/seen_jobs.json
 ```bash
 git clone https://github.com/AnelkaCH/2026Project-Job-Monitoring-System.git
 cd 2026Project-Job-Monitoring-System
-pip install -r requirement.txt
+pip install -r requirements.txt
 ```
 
 ### Configuration
@@ -105,7 +105,7 @@ Run all tests with:
 pytest tests/
 ```
 
-99 tests across six modules covering the security-critical infrastructure and the dashboard data layer: rate limiter (6 tests), robots.txt compliance checker (12 tests), audit logging / hard-stop detection (15 tests), seen_jobs enrichment (6 tests), dashboard flattening, filtering, and path resolution (12 tests), and input validation / sanitization (48 tests, one skipped by design for the SAP optional-title case). Tests use `unittest.mock` to avoid real network or filesystem I/O and are safe to run without configuration.
+104 tests across six modules covering the security-critical infrastructure and the dashboard data layer: rate limiter (6 tests), robots.txt compliance checker (12 tests), audit logging / hard-stop detection (15 tests), seen_jobs enrichment (6 tests), dashboard flattening, filtering, and path resolution (12 tests), and input validation / sanitization (48 tests, one skipped by design for the SAP optional-title case). Tests use `unittest.mock` to avoid real network or filesystem I/O and are safe to run without configuration.
 
 ### Optional: Pre-Commit Hook
 
@@ -140,13 +140,20 @@ JobMonitoring/
   config.example.json         Template config for new users
   .env                        Email credentials (not committed)
   .env.example                Template for email credentials
-  seen_jobs.json              Deduplication state (persisted)
-  skip_history.json           Skip streak state (persisted)
-  requirement.txt             Dependencies
+  requirements.txt            Runtime dependencies
   LICENSE                     MIT License
   adapters/                   ATS-specific fetch logic
-    connectors.py             9 standard ATS adapters
-    custom_handlers.py        Private custom handlers
+    connectors.py             Registry: maps ATS names to fetch functions
+    greenhouse.py             Greenhouse adapter
+    lever.py                  Lever adapter
+    ashby.py                  Ashby adapter
+    smartrecruiters.py        SmartRecruiters adapter
+    recruitee.py              Recruitee adapter
+    workable.py               Workable adapter
+    personio.py               Personio adapter
+    workday.py                Workday adapter
+    sap.py                    SAP SuccessFactors adapter
+    custom_handlers.py        Private custom handlers (gitignored)
     custom_handler_example.py Template for new custom handlers
   utils/                      Shared infrastructure
     rate_limiter.py           Per-company rate limiting + backoff
@@ -155,14 +162,21 @@ JobMonitoring/
     audit_log.py              Dual-stream audit + operational logging
     notifier.py               HTML email notifications via Gmail SMTP
     date_utils.py             Date format converters per ATS
-  tests/                      Unit tests (51 total)
+    schema.py                 Input validation and sanitization
+  tests/                      Unit tests (104 total, 1 skipped by design)
     test_rate_limiter.py      Rate limiter tests (6)
     test_robots_check.py      Robots.txt compliance tests (12)
     test_audit_log.py         Audit log and hard-stop tests (15)
     test_seen_jobs.py         seen_jobs enrichment tests (6)
     test_dashboard.py         Dashboard data-layer tests (12)
+    test_schema.py            Input validation / sanitization tests (48)
+  static/                     UI assets for the dashboard
+    win95_theme.css           Win95-chrome stylesheet
+  data/                       Runtime state files (gitignored)
+    seen_jobs.json            Deduplication state (persisted)
+    skip_history.json         Skip streak state (persisted)
   logs/                       Runtime log files (gitignored)
-  documentation/              Holds documentation and screenshots
+  documentation/              Screenshots and supporting images
   .github/
     workflows/
       tests.yml               CI workflow: runs pytest on push and PR to main
