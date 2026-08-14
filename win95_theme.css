@@ -1,0 +1,242 @@
+/* Win95 chrome for the Job Monitor dashboard (v3.1.1).
+   Styling only, no data or behavior changes. Injected by dashboard.py via
+   st.markdown(..., unsafe_allow_html=True) wrapped in a <style> tag. */
+
+:root {
+  --win-gray: #c0c0c0;
+  --win-gray-light: #dfdfdf;
+  --win-gray-dark: #808080;
+  --win-black: #000000;
+  --win-white: #ffffff;
+  --win-page-bg: #f0f0f0;
+  --win-highlight: #000080;
+  --win-blue-link: #0000ff;
+  --win-text: #000000;
+}
+
+/* Global surface: light gray main area so the white table and the gray
+   chrome read clearly, even if the browser theme toggle is pinned to dark. */
+[data-testid="stApp"] {
+  background-color: var(--win-page-bg) !important;
+  color: var(--win-text);
+  font-family: Tahoma, "MS Sans Serif", "Microsoft Sans Serif", "Segoe UI", Arial, sans-serif;
+}
+[data-testid="stSidebar"] {
+  background-color: var(--win-gray) !important;
+}
+[data-testid="stSidebar"] h2 {
+  color: var(--win-text);
+}
+[data-testid="stHeader"] {
+  color: var(--win-text);
+}
+
+/* Chunky retro scrollbars. */
+::-webkit-scrollbar {
+  width: 16px;
+  height: 16px;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--win-gray);
+  border: 2px solid;
+  border-color: var(--win-white) var(--win-gray-dark) var(--win-gray-dark) var(--win-white);
+}
+::-webkit-scrollbar-track {
+  background: var(--win-gray-light);
+}
+::-webkit-scrollbar-button {
+  background: var(--win-gray);
+}
+
+/* Title bar: solid dark blue window chrome with fake window buttons. */
+.title-bar {
+  background: var(--win-highlight);
+  color: #ffffff;
+  font-weight: bold;
+  font-size: 14px;
+  padding: 6px 8px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border: 2px solid;
+  border-color: var(--win-gray-light) var(--win-black) var(--win-black) var(--win-gray-light);
+  margin-bottom: 10px;
+}
+.title-bar-text {
+  letter-spacing: 0.5px;
+}
+.title-bar-buttons {
+  display: flex;
+  gap: 2px;
+}
+.win-btn {
+  display: inline-block;
+  width: 18px;
+  height: 16px;
+  line-height: 13px;
+  text-align: center;
+  background: var(--win-gray);
+  color: var(--win-black);
+  border: 2px solid;
+  border-color: var(--win-white) var(--win-black) var(--win-black) var(--win-white);
+  font-size: 10px;
+  font-weight: bold;
+  cursor: default;
+}
+.win-btn:active {
+  border-color: var(--win-black) var(--win-white) var(--win-white) var(--win-black);
+}
+
+/* Badge cards: inset status/error panels, tinted per severity. */
+.badge-card {
+  border: 2px solid;
+  border-color: var(--win-white) var(--win-black) var(--win-black) var(--win-white);
+  background: var(--win-gray);
+  color: var(--win-text);
+  box-shadow: inset 1px 1px 0 var(--win-gray-dark);
+  padding: 8px 12px;
+  margin: 8px 0 12px;
+  font-size: 13px;
+}
+.badge-card--warn {
+  background: #ffffcc;
+}
+.badge-card--error {
+  background: #ffe0e0;
+}
+
+/* Metric cards as Win95 group boxes: raised border, sunken line, label on
+   the top border, bold black value. */
+.group-box {
+  border: 2px solid;
+  border-color: var(--win-white) var(--win-black) var(--win-black) var(--win-white);
+  box-shadow: inset 1px 1px 0 var(--win-gray-dark);
+  background: var(--win-gray);
+  margin: 6px 0 14px;
+  padding: 14px 12px 10px;
+  position: relative;
+}
+.group-box .group-box-label {
+  position: absolute;
+  top: -9px;
+  left: 8px;
+  background: var(--win-gray);
+  padding: 0 4px;
+  font-size: 11px;
+  font-weight: bold;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--win-text);
+}
+.group-box .group-box-value {
+  display: block;
+  font-size: 22px;
+  font-weight: bold;
+  color: var(--win-black);
+  padding-top: 4px;
+}
+
+/* Buttons: gray, beveled raised, pressed/inset on :active. */
+[data-testid="stButton"] button,
+[data-testid="stDownloadButton"] button,
+[data-testid="stPopover"] button,
+.st-key-taskbar button {
+  background-color: var(--win-gray);
+  color: var(--win-text);
+  border: 2px solid;
+  border-color: var(--win-white) var(--win-black) var(--win-black) var(--win-white);
+  border-radius: 0;
+  font-weight: bold;
+  padding: 3px 12px;
+}
+[data-testid="stButton"] button:active,
+[data-testid="stDownloadButton"] button:active,
+[data-testid="stPopover"] button:active,
+.st-key-taskbar button:active {
+  border-color: var(--win-black) var(--win-white) var(--win-white) var(--win-black);
+}
+[data-testid="stButton"] button:focus,
+[data-testid="stDownloadButton"] button:focus,
+[data-testid="stPopover"] button:focus,
+.st-key-taskbar button:focus {
+  outline: none;
+}
+
+/* Input widgets: beveled inset chrome. */
+[data-testid="stSelectbox"] div[data-baseweb="select"] > div,
+[data-testid="stMultiSelect"] div[data-baseweb="select"] > div,
+[data-testid="stDateInput"] div[data-baseweb="input"] > div {
+  background-color: var(--win-gray);
+  border: 2px solid;
+  border-color: var(--win-gray-dark) var(--win-white) var(--win-white) var(--win-gray-dark);
+  border-radius: 0;
+  color: var(--win-text);
+}
+
+/* Postings table (Glide Data Grid): beveled white container, classic Win95
+   ListView colors, no rounded corners. Streamlit 1.61 renders the dataframe
+   on a canvas, so the colors come from the --gdg-* custom properties set
+   inline on the grid element. Our values use !important to win over the
+   inline theme vars, and the border-radius overrides remove the theme's
+   rounded corners. */
+[data-testid="stDataFrame"] {
+  border: 2px solid;
+  border-color: var(--win-gray-dark) var(--win-white) var(--win-white) var(--win-gray-dark);
+  border-radius: 0;
+  background: #ffffff;
+}
+[data-testid="stDataFrame"],
+[data-testid="stDataFrame"] * {
+  border-radius: 0 !important;
+}
+[data-testid="stDataFrameGlideDataEditor"] {
+  --gdg-bg-header: var(--win-gray) !important;
+  --gdg-bg-header-has-focus: var(--win-gray) !important;
+  --gdg-bg-header-hovered: var(--win-gray-light) !important;
+  --gdg-text-header: var(--win-black) !important;
+  --gdg-text-header-selected: var(--win-black) !important;
+  --gdg-bg-cell: var(--win-white) !important;
+  --gdg-bg-cell-medium: var(--win-white) !important;
+  --gdg-border-color: var(--win-gray) !important;
+  --gdg-horizontal-border-color: var(--win-gray) !important;
+}
+[data-testid="stDataFrame"] a {
+  color: var(--win-blue-link) !important;
+  text-decoration: underline;
+}
+
+/* Sticky functional taskbar in the accent proportions of a Win95 bar.
+   Keyed containers in Streamlit get the key as a CSS class (st-key-<key>),
+   not a data-testid, so these rules target the class. */
+.st-key-taskbar {
+  position: sticky;
+  bottom: 0;
+  z-index: 100;
+  background-color: var(--win-gray);
+  border-top: 2px solid var(--win-white);
+  box-shadow: inset 0 2px 0 var(--win-gray-light), inset 0 -2px 0 var(--win-gray-dark);
+  padding: 4px 8px;
+  margin-top: 12px;
+}
+/* Action buttons (Export CSV, About) sit side by side on the left of the
+   taskbar instead of stacking vertically. */
+[data-testid="stVerticalBlock"].st-key-actionbar {
+  flex-direction: row;
+  gap: 0.5rem;
+  align-items: center;
+}
+@media (max-width: 640px) {
+  [data-testid="stVerticalBlock"].st-key-actionbar {
+    flex-wrap: wrap;
+    row-gap: 0.25rem;
+  }
+}
+
+/* Popover (Start menu) chrome. */
+[data-testid="stPopoverBody"],
+[data-testid="stPopover"] [role="dialog"] {
+  background-color: var(--win-gray);
+  border: 2px solid;
+  border-color: var(--win-white) var(--win-black) var(--win-black) var(--win-white);
+  border-radius: 0;
+}

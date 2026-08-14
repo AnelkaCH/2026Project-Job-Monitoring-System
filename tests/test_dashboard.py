@@ -6,10 +6,15 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from dashboard import (
+    DASHBOARD_CSS,
+    DASHBOARD_CSS_PATH,
     DEFAULT_SEEN_JOBS_FILE,
     apply_filters,
     build_dataframe,
     flatten_seen_jobs,
+    render_badge,
+    render_metric_card,
+    render_title_bar,
     resolve_seen_jobs_path,
 )
 
@@ -139,6 +144,58 @@ def test_path_cli_flag_beats_env_var():
     print("PASS: CLI flag beats env var when both are set")
 
 
+def test_render_badge_escapes_message():
+    # Message content may carry file paths and exception text, so it must be
+    # HTML-escaped before insertion into our own static markup.
+    out = render_badge("error", 'bad <script>alert(1)</script> & <b>path</b>')
+    assert "&lt;script&gt;" in out
+    assert "&amp;" in out
+    assert "<script>" not in out
+    print("PASS: badge message content is HTML-escaped")
+
+
+def test_render_badge_kind_class():
+    assert 'badge-card--error' in render_badge("error", "x")
+    assert 'badge-card--warn' in render_badge("warn", "x")
+    assert 'badge-card--info' in render_badge("info", "x")
+    print("PASS: badge kind maps to its CSS variant class")
+
+
+def test_dashboard_css_wrapped_in_style_tag():
+    # Without a <style> wrapper, st.markdown prints the CSS as literal text
+    # instead of applying it. Guard against that regression.
+    assert DASHBOARD_CSS.lstrip().startswith("<style>")
+    assert DASHBOARD_CSS.rstrip().endswith("</style>")
+    assert "win-gray" in DASHBOARD_CSS
+    print("PASS: dashboard CSS is wrapped in a <style> tag")
+
+
+def test_win95_theme_css_file_exists():
+    assert os.path.exists(DASHBOARD_CSS_PATH)
+    with open(DASHBOARD_CSS_PATH, "r", encoding="utf-8") as f:
+        assert len(f.read().strip()) > 0
+    print("PASS: win95_theme.css exists and is non-empty")
+
+
+def test_render_title_bar_is_static():
+    # The title bar carries no dynamic data, so nothing to escape; it should
+    # just present the retro chrome.
+    out = render_title_bar()
+    assert "title-bar" in out
+    assert "win-btn" in out
+    assert "title-bar-text" in out
+    print("PASS: title bar renders static retro chrome")
+
+
+def test_render_metric_card_escapes_value():
+    out = render_metric_card("Companies", "<b>5</b>")
+    assert "<div class=\"group-box\">" in out
+    assert "group-box-label" in out and "group-box-value" in out
+    assert "<b>5</b>" not in out
+    assert "&lt;b&gt;5&lt;/b&gt;" in out
+    print("PASS: metric card label and value are HTML-escaped")
+
+
 if __name__ == "__main__":
     test_flatten_new_format()
     test_flatten_old_format_does_not_crash()
@@ -152,4 +209,10 @@ if __name__ == "__main__":
     test_path_env_var_wins()
     test_path_cli_flag_wins()
     test_path_cli_flag_beats_env_var()
+    test_render_badge_escapes_message()
+    test_render_badge_kind_class()
+    test_dashboard_css_wrapped_in_style_tag()
+    test_win95_theme_css_file_exists()
+    test_render_title_bar_is_static()
+    test_render_metric_card_escapes_value()
     print("\nAll tests passed.")

@@ -6,6 +6,28 @@
 - Scheduler
 - Many more things to come :D
 
+## [2026-08-14] v3.1.1 - Dashboard Theming Pass
+### Added
+- `win95_theme.css` - Standalone Win95-chrome stylesheet (kept separate from the script for maintainability and wrapped in a `<style>` tag at injection time): light gray `#F0F0F0` main surface with classic gray `#C0C0C0` chrome, raised/inset beveled borders, Tahoma-led system font stack, chunky scrollbars, and ListView-style table chrome (white cells, gray header).
+- `.streamlit/config.toml` - Light base with the dataframe theme keys set: `backgroundColor` `#FFFFFF` (white table cells), `dataframeHeaderBackgroundColor` `#C0C0C0` (classic gray header), `dataframeBorderColor` `#C0C0C0` (grid lines), `secondaryBackgroundColor` `#F0F0F0` (light gray surface), `#000000` text, navy `#000080` primary, distinct `[theme.sidebar]` gray.
+- `dashboard.py` - `load_dashboard_css()` reads `win95_theme.css` and wraps it in a `<style>` tag; a missing stylesheet renders the dashboard unstyled rather than crashing it. A trust-boundary note documents why `unsafe_allow_html` is safe: the markup is our own static CSS, never ATS-sourced posting text.
+- `dashboard.py` - Retro title bar (solid dark blue `#000080`, white bold text, fake window buttons) via `render_title_bar()`.
+- `dashboard.py` - Metric tiles restyled as Win95 group boxes (raised bevel, sunken line, small-caps label on the top border, bold black value) via `render_metric_card()`.
+- `dashboard.py` - Sticky functional taskbar (`st.container(key="taskbar")`) with two direct buttons: **Export CSV** (download button) and **About** (Win95-style popover with version, purpose, and source path), plus a live status line: `Ready | N companies | M ATS | showing X of Y postings | modified <time> | <path>`. Sticky (not fixed) so it never covers the table.
+- `dashboard.py` - Sidebar filters gained widget keys (`company_filter`, `tier_filter`, `date_filter`) so Reset can clear them. UI-state only.
+
+### Changed
+- `dashboard.py` - The "Could not read seen_jobs.json" failure now renders as a tinted inset badge card instead of the default full-width `st.error` box. Cosmetic only; no data flow or behavior change.
+- `dashboard.py` - Previous cyan-blue accent redesign replaced by the Win95 chrome; company-name monospace Styler removed so the retro font applies app-wide.
+- `dashboard.py` - The standalone "Monitoring N companies" status badge folded into the taskbar status line; `render_badge()` and the `.badge-card` CSS remain for the error path and future skip-streak / Tier 3 hard-stop indicators.
+- `.streamlit/config.toml` - The postings table reads as a classic Win95 ListView: white cells, gray header, gray grid lines, no rounded corners. Streamlit's dataframe canvas colors come from the theme (not CSS), so the fix lives in the theme keys (`backgroundColor`, `dataframeHeaderBackgroundColor`, `dataframeBorderColor`).
+- `win95_theme.css` - Dataframe styling updated for Streamlit 1.61's Glide Data Grid: the old AG Grid selectors (`.ag-header`, `thead th`, `td`) no longer match the DOM, so the grid's `--gdg-*` theme variable overrides (`bg-header`, `bg-cell`, `border-color`) replace them. The table container and every inner element are forced square (`border-radius: 0`) so no rounded corners remain.
+
+### Fixed
+- `dashboard.py` - The injected CSS was missing a `<style>` HTML wrapper, so `st.markdown` rendered the raw stylesheet as literal text at the top of the dashboard instead of applying it. The stylesheet is now wrapped in `<style>` tags, and a regression test guards against it.
+- `dashboard.py` - `st.popover` raised `StreamlitAPIException` because `:material/windows:` is not a valid Material icon; the About popover now uses `:material/info:` (Refresh uses `:material/refresh:`, Export uses `:material/download:`).
+- `.streamlit/config.toml` - The table no longer renders as the same gray as the page: the previous `backgroundColor` (`#C0C0C0`) was inherited by both the header and the cells; the cells are now white while the header stays classic gray.
+
 ## [2026-08-12] v3.1 - Input Validation & Sanitization (on API responses)
 ### Added
 - `utils/schema.py` - One pydantic model per ATS that validates the raw response shape each ATS actually returns, plus `JobPosting` (the shared normalized 6-field dict) and the `ALLOWED_LINK_DOMAINS` allowlist. `validate_raw_jobs()` and `validate_job_posting()` are the two gates every adapter routes data through.
