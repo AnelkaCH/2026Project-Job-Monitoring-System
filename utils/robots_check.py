@@ -12,13 +12,18 @@
 # protocol for signalling those constraints, and respecting it is a
 # baseline expectation for any well-behaved automated agent.
 #
-# Using urllib.robotparser (stdlib only) and
-# failing conservatively: if robots.txt is unreachable or unparseable
-# for any reason, the path is treated as disallowed.
+# Fetching is done via requests with an identifying User-Agent; the
+# response text is parsed with urllib.robotparser. The policy is
+# fail-conservative: if robots.txt is unreachable, explicitly denied,
+# or persistently returns a server-side error, the path is treated as
+# disallowed. A missing robots.txt (404) means allow-all per RFC 9309.
 
 import json
 import logging
 import os
+import threading
+import requests
+import time
 from dataclasses import dataclass
 from urllib.parse import urlparse
 from urllib.robotparser import RobotFileParser
@@ -34,30 +39,67 @@ class RobotsChecker:
 
     # Mirrors the ``_trackers`` dict in ``rate_limiter._DomainTracker``:
     # in-memory storage keyed by domain URL, no TTL / per-process lifetime.
+    # The cache is shared across concurrent adapter workers (job_monitor runs
+    # adapters via ThreadPoolExecutor), so creation is guarded by a lock.
 
     def __init__(self):
         self._parsers = {}
+        self._lock = threading.Lock()
 
     def _domain_url(self, base_url: str) -> str:
         # """Normalise a base URL to ``scheme://netloc`` form."""
         parsed = urlparse(base_url)
         return f"{parsed.scheme}://{parsed.netloc}"
 
-    def _fetch_parser(self, domain_url: str):
-        # Fetch and parse ``robots.txt`` for the domain.
+    def _fetch_parser(self, domain_url: str, retries: int = 1, backoff_base: float = 1.5):
+        robots_url = domain_url + "/robots.txt"
+        headers = {"User-Agent": "JobMonitorBot/1.0 (+https://github.com/AnelkaCH/job-monitoring-system)"}
 
-        # Returns a ``RobotFileParser`` on success, or ``None`` if the
-        # resource is unreachable, unparseable, or errors for any reason
-        # (fail conservative).
+        attempt = 0
+        while True:
+            rp = RobotFileParser()
+            rp.set_url(robots_url)
+            try:
+                resp = requests.get(robots_url, timeout=10, headers=headers)
+            except requests.exceptions.RequestException as exc:
+                if attempt < retries:
+                    delay = backoff_base * (2 ** attempt)
+                    logger.info(
+                        "robots.txt fetch failed at %s (attempt %d/%d), retrying in %.1fs: %s",
+                        domain_url, attempt + 1, retries + 1, delay, exc,
+                    )
+                    time.sleep(delay)
+                    attempt += 1
+                    continue
+                logger.warning("Could not fetch/parse robots.txt at %s: %s", domain_url, exc)
+                return None
 
-        rp = RobotFileParser()
-        rp.set_url(domain_url + "/robots.txt")
-        try:
-            rp.read()
-        except Exception as exc:
-            logger.warning("Could not fetch/parse robots.txt at %s: %s", domain_url, exc)
-            return None
-        return rp
+            if resp.status_code == 200:
+                rp.parse(resp.text.splitlines())
+                return rp
+            elif resp.status_code in (401, 403):
+                # Explicit access denial, fail conservative, no point retrying.
+                logger.warning("robots.txt fetch got %s at %s - treating as disallow", resp.status_code, domain_url)
+                return None
+            elif 500 <= resp.status_code < 600:
+                # Server-side error, worth one retry, then fail conservative.
+                if attempt < retries:
+                    delay = backoff_base * (2 ** attempt)
+                    logger.info(
+                        "robots.txt fetch got %s at %s (attempt %d/%d), retrying in %.1fs",
+                        resp.status_code, domain_url, attempt + 1, retries + 1, delay,
+                    )
+                    time.sleep(delay)
+                    attempt += 1
+                    continue
+                logger.warning("robots.txt fetch got %s at %s - treating as disallow", resp.status_code, domain_url)
+                return None
+            else:
+                # 404 etc. - RFC 9309: absence of robots.txt means allow-all.
+                # Other 4xx also falls here rather than failing conservative,
+                # since it's not an explicit access denial.
+                rp.parse([])
+                return rp
 
     def is_allowed(self, base_url: str, path: str, user_agent: str = "*") -> bool:
         # Check whether ``path`` is allowed by the domain's ``robots.txt``.
@@ -78,13 +120,14 @@ class RobotsChecker:
         #     could not be completed (fail conservative).
         domain = self._domain_url(base_url)
 
-        if domain not in self._parsers:
-            parser = self._fetch_parser(domain)
-            if parser is None:
-                return False
-            self._parsers[domain] = parser
-        else:
-            parser = self._parsers[domain]
+        with self._lock:
+            if domain not in self._parsers:
+                parser = self._fetch_parser(domain)
+                if parser is None:
+                    return False
+                self._parsers[domain] = parser
+            else:
+                parser = self._parsers[domain]
 
         return parser.can_fetch(user_agent, path)
 

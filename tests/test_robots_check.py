@@ -1,8 +1,8 @@
 import sys
 from pathlib import Path
 from unittest.mock import patch, MagicMock
-from urllib.error import URLError
 
+import requests
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -30,28 +30,65 @@ class TestDomainUrl:
 
 
 class TestFetchParser:
+    def _response(self, status_code, text=""):
+        resp = MagicMock()
+        resp.status_code = status_code
+        resp.text = text
+        return resp
+
     def test_returns_parser_on_success(self, checker):
-        with patch("utils.robots_check.RobotFileParser") as mock_class:
-            mock_parser = MagicMock()
-            mock_class.return_value = mock_parser
+        with patch(
+            "utils.robots_check.requests.get",
+            return_value=self._response(200, "User-agent: *\nAllow: /"),
+        ) as mock_get:
+            with patch("utils.robots_check.RobotFileParser") as mock_class:
+                mock_parser = MagicMock()
+                mock_class.return_value = mock_parser
 
+                result = checker._fetch_parser("https://example.com")
+
+                assert result is mock_parser
+                mock_get.assert_called_once_with(
+                    "https://example.com/robots.txt",
+                    timeout=10,
+                    headers={"User-Agent": "JobMonitorBot/1.0 (+https://github.com/AnelkaCH/job-monitoring-system)"},
+                )
+                mock_parser.set_url.assert_called_once_with(
+                    "https://example.com/robots.txt"
+                )
+                mock_parser.parse.assert_called_once_with(["User-agent: *", "Allow: /"])
+
+    def test_returns_none_on_network_error(self, checker):
+        # Fail-conservative: an unreachable robots.txt is treated as disallowed.
+        with patch(
+            "utils.robots_check.requests.get",
+            side_effect=requests.exceptions.ConnectionError("Connection refused"),
+        ):
+            assert checker._fetch_parser("https://example.com", retries=0) is None
+
+    def test_returns_none_on_explicit_denial(self, checker):
+        # A 401 or 403 is an explicit access denial, fail conservative with no retry.
+        for status in (401, 403):
+            with patch(
+                "utils.robots_check.requests.get",
+                return_value=self._response(status),
+            ):
+                assert checker._fetch_parser("https://example.com") is None
+
+    def test_returns_allow_all_parser_on_missing_robots(self, checker):
+        # A 404 means the platform publishes no robots.txt, allow-all per RFC 9309.
+        with patch("utils.robots_check.requests.get", return_value=self._response(404)):
             result = checker._fetch_parser("https://example.com")
+            assert result is not None
+            assert result.can_fetch("*", "/anything") is True
 
-            assert result is mock_parser
-            mock_parser.set_url.assert_called_once_with(
-                "https://example.com/robots.txt"
-            )
-            mock_parser.read.assert_called_once()
-
-    def test_returns_none_on_urlerror(self, checker):
-        with patch("utils.robots_check.RobotFileParser") as mock_class:
-            mock_parser = MagicMock()
-            mock_parser.read.side_effect = URLError("Connection refused")
-            mock_class.return_value = mock_parser
-
-            result = checker._fetch_parser("https://example.com")
-
-            assert result is None
+    def test_5xx_retries_once_then_disallow(self, checker):
+        # Persistent server-side errors fail conservative, treated as disallowed.
+        with patch(
+            "utils.robots_check.requests.get",
+            side_effect=[self._response(503), self._response(503)],
+        ), patch("utils.robots_check.time.sleep"):
+            assert checker._fetch_parser("https://example.com") is None
 
 
 class TestIsAllowed:

@@ -6,6 +6,26 @@
 - Scheduler
 - Many more things to come :D
 
+## [2026-08-16] v3.2 - Parallel Execution & Role/Domain Keyword Split
+### Added
+- `utils/matching.py` - Word-boundary keyword matching via `keyword_matches()` (a term like "engineer" no longer trips on partial overlaps such as "Software Engineering") plus `has_date_range_signal()` for fixed-term internship titles that carry a month-year range in parentheses or brackets instead of a literal role keyword.
+- `tests/test_matching.py` - 10 tests covering word-boundary matching, trailing-space config entries, case-insensitivity, date-range signals (paren and bracket styles, bare-year rejection), live-config false-positive regression cases, and a concurrency aggregation test exercising the ThreadPoolExecutor path.
+- `tests/test_robots_check.py` - `TestFetchParser` tests rewritten for the `requests`-based fetch, covering the new branches: network-error fail-conservative, 401/403 explicit denial, 404 allow-all per RFC 9309, and 5xx retry-then-disallow (module now 15 tests).
+
+### Changed
+- `job_monitor.py` - Companies are fetched and classified concurrently via a `ThreadPoolExecutor` (capped at 15 workers via `MAX_CONCURRENT_COMPANIES`). Fetch and classify logic moved into `check_company()`, which returns a structured result; logging and aggregation happen in the main thread via `log_company_result()`, so shared lists and the `seen_jobs` dict need no locks.
+- `job_monitor.py` - The single combined `keywords` filter is replaced with `role_keywords` plus `domain_keywords`. A posting now matches only when at least one role keyword and at least one domain keyword appear in the title (word-boundary regex) and no exclude keyword matches. A date-range signal in an internship title can satisfy the role half of the check.
+- `config.example.json` - The `keywords` template entry is replaced with separate `role_keywords` and `domain_keywords` templates.
+- `utils/rate_limiter.py` - The per-company tracker registry is guarded by a `threading.Lock` for the new concurrent workers.
+- `utils/robots_check.py` - `robots.txt` is now fetched via `requests` with an identifying User-Agent instead of the stdlib `urllib.robotparser` reader. Network errors and server-side 5xx responses retry with exponential backoff (default 1 retry) and then fail conservative (treated as disallowed) if they persist. A 401 or 403 is treated as disallowed; a 404 or any other 4xx is treated as allow-all per RFC 9309. The parser cache is guarded by a lock.
+- `utils/skip_tracker.py` - Shared `skip_history.json` writes are guarded by a module-level lock so concurrent adapter workers do not race on the file.
+- All adapters - Loggers consolidated to the shared `job_monitor.operational` stream so concurrent workers write to one rotating operational log.
+- `ARCHITECTURE.md` - Updated for the role/domain keyword split, concurrency model, and new robots.txt behavior.
+- `README.md` - Updated filter semantics, test counts, and project structure.
+
+### Fixed
+- `utils/robots_check.py` - `robots.txt` is no longer fetched without an identifying User-Agent.
+
 ## [2026-08-14] v3.1.2 - Project Structure Refactor
 ### Added
 - `static/` directory - `win95_theme.css` moved here from the project root to keep UI assets co-located with the dashboard instead of sitting beside source modules.

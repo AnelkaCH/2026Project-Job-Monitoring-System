@@ -7,8 +7,11 @@
         "exclude_keywords": [
         "ADD KEYWORDS HERE" // e.g. "HR", "recruiter", "talent acquisition"
         ],
-        "keywords": [
-        "ADD YOUR KEYWORD(S) HERE" // e.g. "engineer", "developer', "analyst"
+        "role_keywords": [
+        "ADD YOUR ROLE KEYWORDS HERE" // e.g. "intern", "trainee", "graduate program"
+        ],
+        "domain_keywords": [
+        "ADD YOUR DOMAIN KEYWORDS HERE" // e.g. "security", "cyber", "cloud"
         ]
     },
     "companies": [

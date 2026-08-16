@@ -20,22 +20,22 @@ I was tracking internship and job openings across cybersecurity, cloud, and tech
 
 ## Documentation
 
-- [Architecture](./ARCHITECTURE.md) -- design decisions and system structure
-- [Changelog](./CHANGELOG.md) -- version history
+- [Architecture](./ARCHITECTURE.md): design decisions and system structure
+- [Changelog](./CHANGELOG.md): version history
 
 ## Features
 
-- **Interactive dashboard** -- a Streamlit jobs viewer that turns the match history into a filterable table (company, title, date matched)
+- **Interactive dashboard**: a Streamlit jobs viewer that turns the match history into a filterable table (company, title, date matched)
 - **Adapter pattern** supporting 10+ ATS platforms (Greenhouse, Lever, Ashby, SmartRecruiters, Recruitee, Workable, Personio, Workday, SAP SuccessFactors, plus custom handlers)
-- **Tiered classification** -- config-driven keyword, location, exclude-keyword, and age filters sort jobs into match / ambiguous / no_match tiers
-- **Deduplication** -- previously seen job IDs are stored in `seen_jobs.json` so the same posting is never reported twice
-- **Email notifications** -- HTML email alerts for new matches, ambiguous jobs, and repeatedly skipped companies
-- **Robots.txt compliance** -- every request is preceded by a robots.txt check; paths are treated as disallowed if the file is unreachable
-- **Rate limiting** -- per-company requests-per-minute cap with exponential backoff and jitter on throttle signals
-- **Audit logging** -- dual-stream structured logging (JSON audit events + timestamped operational output) with file rotation
-- **Skip tracking** -- persistent consecutive-skip counter per company; streaks of 3+ trigger a flag in the email
-- **Detect-secrets pre-commit hook** -- scans staged changes for credentials and high-entropy strings before commits go through
-- **CI pipeline** -- GitHub Actions workflow runs the full test suite on every push and PR to `main`; live status badge in this README
+- **Tiered classification**: config-driven role+domain keyword AND logic, location, exclude-keyword, and age filters sort jobs into match / ambiguous / no_match tiers
+- **Deduplication**: previously seen job IDs are stored in `seen_jobs.json` so the same posting is never reported twice
+- **Email notifications**: HTML email alerts for new matches, ambiguous jobs, and repeatedly skipped companies
+- **Robots.txt compliance**: every request is preceded by a robots.txt check; paths are treated as disallowed if the file is unreachable
+- **Rate limiting**: per-company requests-per-minute cap with exponential backoff and jitter on throttle signals
+- **Audit logging**: dual-stream structured logging (JSON audit events + timestamped operational output) with file rotation
+- **Skip tracking**: persistent consecutive-skip counter per company; streaks of 3+ trigger a flag in the email
+- **Detect-secrets pre-commit hook**: scans staged changes for credentials and high-entropy strings before commits go through
+- **CI pipeline**: GitHub Actions workflow runs the full test suite on every push and PR to `main`; live status badge in this README
 
 ## Tech Stack
 
@@ -43,7 +43,7 @@ I was tracking internship and job openings across cybersecurity, cloud, and tech
 
 ## How It Works
 
-The system runs on a scheduled GitHub Actions job (not yet available). Each cycle, it iterates through configured companies, dispatches to the appropriate ATS adapter, checks robots.txt compliance, and fetches job listings through the rate limiter. Every ATS response is validated against a per-platform schema and sanitized (HTML tags stripped with `bleach`, links checked to be `https` on the expected domain) before normalization, with anything rejected logged as a `VALIDATION_REJECTED` audit event. Results are classified by keyword and location filters, deduplicated against previously seen postings, and new matches trigger an HTML email notification. Companies that fail repeatedly (rate-limited, bot-detected, or robots.txt-disallowed) are flagged for manual review after three consecutive skips.
+The system runs on a scheduled GitHub Actions job (not yet available). Each cycle, it checks configured companies concurrently, dispatches to the appropriate ATS adapter, checks robots.txt compliance, and fetches job listings through the rate limiter. Every ATS response is validated against a per-platform schema and sanitized (HTML tags stripped with `bleach`, links checked to be `https` on the expected domain) before normalization, with anything rejected logged as a `VALIDATION_REJECTED` audit event. Results are classified by role and domain keyword AND logic plus location and age filters, deduplicated against previously seen postings, and new matches trigger an HTML email notification. Companies that fail repeatedly (rate-limited, bot-detected, or robots.txt-disallowed) are flagged for manual review after three consecutive skips.
 
 ## Dashboard
 
@@ -105,7 +105,7 @@ Run all tests with:
 pytest tests/
 ```
 
-104 tests across six modules covering the security-critical infrastructure and the dashboard data layer: rate limiter (6 tests), robots.txt compliance checker (12 tests), audit logging / hard-stop detection (15 tests), seen_jobs enrichment (6 tests), dashboard flattening, filtering, and path resolution (12 tests), and input validation / sanitization (48 tests, one skipped by design for the SAP optional-title case). Tests use `unittest.mock` to avoid real network or filesystem I/O and are safe to run without configuration.
+118 tests across seven modules covering the security-critical infrastructure, the dashboard data layer, and keyword matching: rate limiter (6 tests), robots.txt compliance checker (15 tests), audit logging / hard-stop detection (15 tests), seen_jobs enrichment (6 tests), dashboard flattening, filtering, and path resolution (18 tests), input validation / sanitization (48 tests, one skipped by design for the SAP optional-title case), and keyword matching / concurrent aggregation (10 tests). Tests use `unittest.mock` to avoid real network or filesystem I/O and are safe to run without configuration.
 
 ### Optional: Pre-Commit Hook
 
@@ -163,13 +163,15 @@ JobMonitoring/
     notifier.py               HTML email notifications via Gmail SMTP
     date_utils.py             Date format converters per ATS
     schema.py                 Input validation and sanitization
-  tests/                      Unit tests (104 total, 1 skipped by design)
+    matching.py               Word-boundary keyword matching helpers
+  tests/                      Unit tests (118 total, 1 skipped by design)
     test_rate_limiter.py      Rate limiter tests (6)
-    test_robots_check.py      Robots.txt compliance tests (12)
+    test_robots_check.py      Robots.txt compliance tests (15)
     test_audit_log.py         Audit log and hard-stop tests (15)
     test_seen_jobs.py         seen_jobs enrichment tests (6)
-    test_dashboard.py         Dashboard data-layer tests (12)
+    test_dashboard.py         Dashboard data-layer tests (18)
     test_schema.py            Input validation / sanitization tests (48)
+    test_matching.py          Keyword matching / concurrency tests (10)
   static/                     UI assets for the dashboard
     win95_theme.css           Win95-chrome stylesheet
   data/                       Runtime state files (gitignored)
@@ -184,13 +186,13 @@ JobMonitoring/
 
 ## Known Issues
 
-- **Location filtering** -- There is a known problem with multiple locations in a single listing (e.g., "Singapore, Hong Kong") not reliably matching the configured location filter.
-- **Stricter robots.txt on some ATS** -- SAP SuccessFactors, SmartRecruiters, Ashby, and Workable currently disallow the endpoints used by this system. The adapters remain in place in case the platforms update their policies.
+- **Location filtering**: There is a known problem with multiple locations in a single listing (e.g., "Singapore, Hong Kong") not reliably matching the configured location filter.
+- **Stricter robots.txt on some ATS**: SAP SuccessFactors, SmartRecruiters, Ashby, and Workable currently disallow the endpoints used by this system. The adapters remain in place in case the platforms update their policies.
 
 ## License
 
-This project is licensed under the MIT License -- see [LICENSE](./LICENSE) for details.
+This project is licensed under the MIT License. See [LICENSE](./LICENSE) for details.
 
 ## Contact
 
-Anelka Cornelius Hariyanto -- [LinkedIn](https://www.linkedin.com/in/anelka-hariyanto/) -- [GitHub: AnelkaCH](https://github.com/AnelkaCH)
+Anelka Cornelius Hariyanto, [LinkedIn](https://www.linkedin.com/in/anelka-hariyanto/), [GitHub: AnelkaCH](https://github.com/AnelkaCH)

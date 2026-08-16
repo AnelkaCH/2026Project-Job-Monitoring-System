@@ -1,3 +1,4 @@
+import threading
 import time
 import random
 import logging
@@ -82,20 +83,22 @@ class RateLimiter:
 # Usage:
     #     limiter = RateLimiter()
     #     response = limiter.get(url, platform="greenhouse", company="acme-corp")
- 
-    # Since adapters run sequentially (no threads/asyncio), this doesn't need
-    # locks. If the scheduler ever moves to concurrent adapters, add a lock
-    # per company in _wait_for_capacity before request.get() is called from
-    # more than one thread.
- 
+
+    # Adapters run concurrently (ThreadPoolExecutor in job_monitor.py), so
+    # the per-company tracker registry is guarded by a lock. Per-company
+    # trackers are only ever touched by the one worker handling that company,
+    # so counting and recording do not need their own locks.
+
     def __init__(self, configs: Optional[Dict[str, PlatformConfig]] = None):
         self.configs = configs or PLATFORM_CONFIGS
         self._trackers: Dict[str, _DomainTracker] = {}
- 
+        self._lock = threading.Lock()
+
     def _tracker_for(self, company: str) -> _DomainTracker:
-        if company not in self._trackers:
-            self._trackers[company] = _DomainTracker()
-        return self._trackers[company]
+        with self._lock:
+            if company not in self._trackers:
+                self._trackers[company] = _DomainTracker()
+            return self._trackers[company]
  
     def _config_for(self, platform: str) -> PlatformConfig:
         return self.configs.get(platform, DEFAULT_CONFIG)
