@@ -105,7 +105,7 @@ Run all tests with:
 pytest tests/
 ```
 
-118 tests across seven modules covering the security-critical infrastructure, the dashboard data layer, and keyword matching: rate limiter (6 tests), robots.txt compliance checker (15 tests), audit logging / hard-stop detection (15 tests), seen_jobs enrichment (6 tests), dashboard flattening, filtering, and path resolution (18 tests), input validation / sanitization (48 tests, one skipped by design for the SAP optional-title case), and keyword matching / concurrent aggregation (10 tests). Tests use `unittest.mock` to avoid real network or filesystem I/O and are safe to run without configuration.
+116 tests across seven modules covering the security-critical infrastructure, the dashboard data layer, and keyword matching: rate limiter (6 tests), robots.txt compliance checker (15 tests), audit logging / hard-stop detection (15 tests), seen_jobs enrichment (6 tests), dashboard flattening, filtering, and path resolution (18 tests), input validation / sanitization (48 tests, one skipped by design for the SAP optional-title case), and keyword matching / concurrent aggregation (8 tests). Tests use `unittest.mock` to avoid real network or filesystem I/O and are safe to run without configuration.
 
 ### Optional: Pre-Commit Hook
 
@@ -164,14 +164,16 @@ JobMonitoring/
     date_utils.py             Date format converters per ATS
     schema.py                 Input validation and sanitization
     matching.py               Word-boundary keyword matching helpers
-  tests/                      Unit tests (118 total, 1 skipped by design)
+  tests/                      Unit tests (116 total, 1 skipped by design)
     test_rate_limiter.py      Rate limiter tests (6)
     test_robots_check.py      Robots.txt compliance tests (15)
     test_audit_log.py         Audit log and hard-stop tests (15)
     test_seen_jobs.py         seen_jobs enrichment tests (6)
     test_dashboard.py         Dashboard data-layer tests (18)
     test_schema.py            Input validation / sanitization tests (48)
-    test_matching.py          Keyword matching / concurrency tests (10)
+    test_matching.py          Keyword matching / concurrency tests (8)
+    fixtures/
+      test_config.json        Repo-safe config fixture for load_config tests
   static/                     UI assets for the dashboard
     win95_theme.css           Win95-chrome stylesheet
   data/                       Runtime state files (gitignored)

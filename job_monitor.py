@@ -33,8 +33,8 @@ SEEN_JOBS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data"
 skip_tracker = SkipTracker()
 MAX_CONCURRENT_COMPANIES = 15
  
-def load_config():
-    with open(CONFIG_FILE, "r", encoding="utf-8") as f:
+def load_config(config_path=None):
+    with open(config_path or CONFIG_FILE, "r", encoding="utf-8") as f:
         data = json.load(f)
     return data["companies"], data.get("filters", {"locations": [], "role_keywords": [], "domain_keywords": [], "exclude_keywords": []})
  

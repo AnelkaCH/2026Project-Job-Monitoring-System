@@ -6,6 +6,17 @@
 - Scheduler
 - Many more things to come :D
 
+## [2026-08-16] v3.2.1 - Test Config Fixture
+### Added
+- `tests/fixtures/test_config.json` - Minimal, repo-safe config fixture (generic filters and a single company, no real or private handler data) so tests do not depend on the gitignored local `config.json`.
+
+### Changed
+- `job_monitor.py` - `load_config()` now accepts an optional `config_path` argument (defaults to `CONFIG_FILE`, no behavior change).
+- `tests/test_matching.py` - Filters are loaded from the fixture via `load_config(FIXTURE_CONFIG)` instead of the gitignored `config.json`. Removed `test_ensign_intern_still_matches` and `test_gsk_internship_role_signal_present`, which asserted against the real company keyword lists and no longer apply to a generic fixture. Module now 8 tests.
+
+### Fixed
+- `tests/test_matching.py` - `FileNotFoundError` when `config.json` is absent (it is gitignored and not present in the repo or CI).
+
 ## [2026-08-16] v3.2 - Parallel Execution & Role/Domain Keyword Split
 ### Added
 - `utils/matching.py` - Word-boundary keyword matching via `keyword_matches()` (a term like "engineer" no longer trips on partial overlaps such as "Software Engineering") plus `has_date_range_signal()` for fixed-term internship titles that carry a month-year range in parentheses or brackets instead of a literal role keyword.

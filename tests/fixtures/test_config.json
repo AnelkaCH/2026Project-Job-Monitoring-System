@@ -1,0 +1,26 @@
+{
+    "filters": {
+        "locations": [
+            "germany"
+        ],
+        "max_age_days": 30,
+        "role_keywords": [
+            "associate",
+            "graduate"
+        ],
+        "domain_keywords": [
+            "human"
+        ],
+        "exclude_keywords": [
+            "engineer"
+        ]
+    },
+    "companies": [
+        { 
+        "name": "1NCE", 
+        "ats": "personio", 
+        "slug": "1nce"
+        }
+    
+    ]
+}
