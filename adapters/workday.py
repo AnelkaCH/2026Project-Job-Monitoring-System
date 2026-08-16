@@ -14,7 +14,7 @@ from utils.robots_check import robots_checker, SkipReason
 from utils.schema import ALLOWED_LINK_DOMAINS, WorkdayJob, validate_job_posting, validate_raw_jobs
 from utils.skip_tracker import SkipTracker
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("job_monitor.operational")
 limiter = RateLimiter()
 skip_tracker = SkipTracker()
 
@@ -60,7 +60,7 @@ def fetch_workday(company): # Working
         total = data.get("total", 0)
         offset += page_size
 
-        if offset >= total or not postings:
+        if not postings or (total > 0 and offset >= total):
             break
 
     skip_tracker.record_success(name)

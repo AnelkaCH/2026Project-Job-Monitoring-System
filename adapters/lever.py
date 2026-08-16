@@ -12,7 +12,7 @@ from utils.robots_check import robots_checker, SkipReason
 from utils.schema import ALLOWED_LINK_DOMAINS, LeverJob, validate_job_posting, validate_raw_jobs
 from utils.skip_tracker import SkipTracker
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("job_monitor.operational")
 limiter = RateLimiter()
 skip_tracker = SkipTracker()
 

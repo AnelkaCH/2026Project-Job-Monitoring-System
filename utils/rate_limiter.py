@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
  
 @dataclass
 class PlatformConfig:
-    max_requests_per_minute: int = 10   # conservative default, override per-adapter once real limits are known
+    max_requests_per_minute: int = 15   # conservative default, override per-adapter once real limits are known
     backoff_base_seconds: float = 2.0   # first retry waits ~2s, then ~4s, ~8s...
     max_retries: int = 4
     max_backoff_seconds: float = 60.0   # cap so a bad run doesn't sleep for minutes
