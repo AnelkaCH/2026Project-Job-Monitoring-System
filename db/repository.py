@@ -158,3 +158,34 @@ def list_skip_streaks(db_path=None):
         return {company: streak for company, streak in rows}
     finally:
         conn.close()
+
+
+def get_job(job_id, db_path=None):
+    # job_id alone is not unique (the primary key is company + job_id + tier),
+    # so return the most recently seen posting that carries this id.
+    conn = _connect(db_path)
+    try:
+        conn.row_factory = sqlite3.Row
+        row = conn.execute(
+            "SELECT company, job_id, tier, title, location, posted, posted_days_ago, "
+            "url, ats_platform, first_seen_at FROM jobs WHERE job_id = ? "
+            "ORDER BY first_seen_at DESC LIMIT 1",
+            (job_id,),
+        ).fetchone()
+        return dict(row) if row else None
+    finally:
+        conn.close()
+
+
+def list_company_last_checked(db_path=None):
+    # Latest first_seen_at per company, used by the API as the stand-in for
+    # when a company's postings were last persisted.
+    conn = _connect(db_path)
+    try:
+        rows = conn.execute(
+            "SELECT company, MAX(first_seen_at) AS last_checked "
+            "FROM jobs GROUP BY company"
+        ).fetchall()
+        return {company: last_checked for company, last_checked in rows}
+    finally:
+        conn.close()

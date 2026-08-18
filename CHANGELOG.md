@@ -6,6 +6,19 @@
 - Scheduler
 - Many more things to come :D
 
+## [2026-08-18] v3.3.1 - FastAPI Read Layer
+### Added
+- `api/` package - A thin, read-mostly FastAPI layer over `db/repository.py` with no new business logic:
+  - `api/main.py` - App instance mounting the routers below plus the single write endpoint `POST /config/keywords`, which validates a non-empty list of strings (422 on bad input via Pydantic) and writes it into `role_keywords`, `domain_keywords`, and `exclude_keywords` in `config.json`.
+  - `api/schemas.py` - Pydantic models: `JobOut`, `CompanyStatusOut`, and `KeywordsIn`.
+  - `api/routes_jobs.py` - `GET /jobs` (optional `company` / `keyword` filters, empty list rather than an error) and `GET /jobs/{job_id}` (404 JSON body when not found).
+  - `api/routes_companies.py` - `GET /companies` and `GET /companies/{name}` merging `config.json`'s company list with the `skip_streaks` table and a per-company `last_checked` derived from the most recent `first_seen_at`; 404 when a company is not tracked.
+- `db/repository.py` - `get_job()` (most recent posting for a job id) and `list_company_last_checked()` (aggregate `MAX(first_seen_at)` per company).
+- `tests/test_api.py` - 10 tests via FastAPI `TestClient` covering the 200 / 404 / 422 cases across all routes, using a temporary database (`DB_PATH`) and a temporary config so the gitignored real files are never touched.
+- `requirements.txt` - Added `fastapi` and `uvicorn`.
+- `requirements-dev.txt` - Added `httpx` (Starlette `TestClient` dependency).
+- `README.md` - New "Running the API" section with the `uvicorn api.main:app --reload` command and one example curl per route; tech stack, test counts, and project structure updated.
+
 ## [2026-08-18] v3.3 - SQLite Persistence
 ### Added
 - `db/` package - stdlib `sqlite3` persistence layer replacing the two flat JSON state files:

@@ -39,7 +39,7 @@ I was tracking internship and job openings across cybersecurity, cloud, and tech
 
 ## Tech Stack
 
-`Python` `requests` `python-dotenv` `streamlit` `pandas` `pydantic` `bleach`
+`Python` `requests` `python-dotenv` `streamlit` `pandas` `pydantic` `bleach` `fastapi` `uvicorn`
 
 ## How It Works
 
@@ -59,6 +59,38 @@ The dashboard reads the SQLite database, and the path is configurable so anyone 
 DB_PATH=/path/to/jobmonitor.db streamlit run dashboard.py
 streamlit run dashboard.py -- --db-path /path/to/jobmonitor.db
 ```
+
+## Running the API
+
+A thin, read-mostly FastAPI layer (`api/`) sits on top of the SQLite database and exposes what the monitor already stores, with a single write endpoint for updating the filter keywords in `config.json`. Run it from the repo root:
+
+```bash
+uvicorn api.main:app --reload
+```
+
+The server listens on `http://127.0.0.1:8000` and the interactive docs are at `http://127.0.0.1:8000/docs`. One example call per route:
+
+```bash
+# List every stored posting (optionally filter by company and/or title keyword)
+curl "http://127.0.0.1:8000/jobs"
+curl "http://127.0.0.1:8000/jobs?company=Samsung%20Electronics&keyword=security"
+
+# A single posting by its job id (404 JSON body if not stored)
+curl "http://127.0.0.1:8000/jobs/some-job-id"
+
+# Status for every tracked company (skip streak + last checked time)
+curl "http://127.0.0.1:8000/companies"
+
+# Status for one tracked company (404 if not in config.json)
+curl "http://127.0.0.1:8000/companies/Samsung%20Electronics"
+
+# Update the filter keywords written into config.json (non-empty list of strings)
+curl -X POST "http://127.0.0.1:8000/config/keywords" \
+  -H "Content-Type: application/json" \
+  -d '{"keywords": ["intern", "security"]}'
+```
+
+The API resolves the database exactly like the rest of the system: `DB_PATH` env var, else the repo-relative `data/jobmonitor.db`. A tracked company's `last_checked` is the most recent `first_seen_at` across its stored postings.
 
 ## Getting Started
 
@@ -105,7 +137,7 @@ Run all tests with:
 pytest tests/
 ```
 
-119 tests across seven modules covering the security-critical infrastructure, the database persistence layer, the dashboard data layer, and keyword matching: rate limiter (6 tests), robots.txt compliance checker (15 tests), audit logging / hard-stop detection (15 tests), database persistence / dedup / skip streaks (9 tests), dashboard flattening, filtering, and path resolution (18 tests), input validation / sanitization (48 tests, one skipped by design for the SAP optional-title case), and keyword matching / concurrent aggregation (8 tests). Tests use `unittest.mock` and per-test temporary databases to avoid real network or filesystem I/O and are safe to run without configuration.
+128 tests across eight modules covering the security-critical infrastructure, the database persistence layer, the dashboard data layer, the read API layer, and keyword matching: rate limiter (6 tests), robots.txt compliance checker (15 tests), audit logging / hard-stop detection (15 tests), database persistence / dedup / skip streaks (9 tests), dashboard flattening, filtering, and path resolution (18 tests), API endpoints and validation (10 tests), input validation / sanitization (48 tests, one skipped by design for the SAP optional-title case), and keyword matching / concurrent aggregation (8 tests). Tests use `unittest.mock` and per-test temporary databases to avoid real network or filesystem I/O and are safe to run without configuration.
 
 ### Optional: Pre-Commit Hook
 
@@ -167,12 +199,18 @@ JobMonitoring/
   db/                         SQLite persistence layer
     schema.py                 Table definitions and init_db()
     repository.py             Reads/writes for jobs and skip streaks
-  tests/                      Unit tests (119 total, 1 skipped by design)
+  api/                        FastAPI read layer
+    main.py                   App instance + POST /config/keywords
+    schemas.py                Pydantic response/request models
+    routes_jobs.py            GET /jobs and GET /jobs/{job_id}
+    routes_companies.py       GET /companies and GET /companies/{name}
+  tests/                      Unit tests (128 total, 1 skipped by design)
     test_rate_limiter.py      Rate limiter tests (6)
     test_robots_check.py      Robots.txt compliance tests (15)
     test_audit_log.py         Audit log and hard-stop tests (15)
     test_db.py                Database persistence / dedup / skip streak tests (9)
     test_dashboard.py         Dashboard data-layer tests (18)
+    test_api.py               FastAPI endpoint and validation tests (10)
     test_schema.py            Input validation / sanitization tests (48)
     test_matching.py          Keyword matching / concurrency tests (8)
     fixtures/
