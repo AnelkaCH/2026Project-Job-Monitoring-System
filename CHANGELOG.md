@@ -6,6 +6,28 @@
 - Scheduler
 - Many more things to come :D
 
+## [2026-08-18] v3.3 - SQLite Persistence
+### Added
+- `db/` package - stdlib `sqlite3` persistence layer replacing the two flat JSON state files:
+  - `db/schema.py` - `init_db()` creates the `jobs` and `skip_streaks` tables if they do not exist (idempotent, safe to call every run). The `jobs` table keeps the existing dedup identity as its primary key: `(company, job_id, tier)`, with matched and ambiguous postings tracked separately exactly like the old `matched_ids` / `ambiguous_ids` lists.
+  - `db/repository.py` - Plain functions for reads and writes (`mark_job_seen()`, `is_job_seen()`, `list_jobs()`, `record_skip()`, `get_skip_streak()`, `reset_skip_streak()`, `list_skip_streaks()`). Every call opens its own short-lived connection (with a timeout) so concurrent adapter workers never share a handle, and `init_db()` runs before each call so tables always exist. `DB_PATH` env var overrides the repo-relative default `data/jobmonitor.db`.
+- `tests/test_db.py` - 9 tests covering table creation and idempotency, dedup (`is_job_seen`, tier separation, `first_seen_at` preserved across re-marks), `list_jobs` company/keyword filtering, and skip streak increment/reset.
+- `DB_PATH` entry in `.env.example` - Location of the SQLite database, defaulting to `data/jobmonitor.db` when unset.
+
+### Changed
+- `job_monitor.py` - `load_seen_jobs()`, `save_seen_jobs()`, and `build_company_record()` removed; dedup state is now read and written through `db/repository.py`. `check_company()` and `log_company_result()` take a `db_path` instead of the shared `seen_jobs` dict, and `log_company_result()` persists matched and ambiguous postings via `mark_job_seen()` (keeping `first_seen_at` for postings already seen). Classification, rate-limiting, robots.txt, and adapter logic are unchanged.
+- `utils/skip_tracker.py` - Consecutive skip streaks now persist in the `skip_streaks` table via `db/repository.py` instead of `data/skip_history.json`. The JSON file and its module-level lock are gone; the constructor takes `db_path` instead of `path` (all adapters call it with no arguments, so they are unchanged).
+- `dashboard.py` - Reads postings from the SQLite database via `repository.list_jobs()` instead of `seen_jobs.json`; the path is configurable via `DB_PATH` / `--db-path` instead of `SEEN_JOBS_PATH` / `--seen-jobs`. `flatten_rows()` replaces `flatten_seen_jobs()` and maps database rows to the same row shape the dataframe and filters expect.
+- `tests/test_dashboard.py` - Flattening and path-resolution tests updated for the database row shape and `DB_PATH` / `--db-path`.
+- `tests/test_matching.py` - The concurrency aggregation test now writes through the repository to a temporary database instead of a shared dict.
+- `tests/test_seen_jobs.py` removed - Its 6 tests covered the deleted `build_company_record()`; equivalent dedup and `first_seen` preservation coverage lives in `tests/test_db.py`.
+- `ARCHITECTURE.md` - Persistence, skip tracking, dedup, dashboard, and data-flow sections updated for the SQLite layer.
+- `README.md` - Dedup, dashboard, config, testing, and project-structure sections updated for the database.
+- `.gitignore` - Added `jobmonitor.db`, `data/jobmonitor.db`, and `db/jobmonitor.db`.
+
+### Fixed
+- `dashboard.py` - The dashboard and the monitor could resolve different DB paths: the monitor loaded `.env` (via `notifier.py`) while the dashboard never did, so the dashboard read an empty store next to a populated one. `db/repository.py` now calls `load_dotenv()` itself, so every consumer (monitor, dashboard, adapters) resolves `DB_PATH` identically.
+
 ## [2026-08-16] v3.2.1 - Test Config Fixture
 ### Added
 - `tests/fixtures/test_config.json` - Minimal, repo-safe config fixture (generic filters and a single company, no real or private handler data) so tests do not depend on the gitignored local `config.json`.

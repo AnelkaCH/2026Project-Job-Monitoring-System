@@ -1,6 +1,7 @@
 import concurrent.futures
 import json
 import sys
+import tempfile
 import time
 from pathlib import Path
 from unittest.mock import patch
@@ -8,6 +9,7 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from job_monitor import check_company, log_company_result, matches_filters, load_config
+from db import repository
 from utils.matching import keyword_matches, has_date_range_signal
 
 FIXTURE_CONFIG = str(Path(__file__).resolve().parent / "fixtures" / "test_config.json")
@@ -80,7 +82,7 @@ def test_false_positives_no_longer_match():
 def test_concurrent_workers_aggregate_safely():
     # Exercises the ThreadPoolExecutor path: N companies are fetched and
     # classified concurrently, and the main-thread aggregation folds every
-    # worker's results into the shared lists and seen_jobs without loss.
+    # worker's results into the shared lists and the database without loss.
     filters = {
         "locations": ["singapore"],
         "role_keywords": ["intern"],
@@ -89,6 +91,7 @@ def test_concurrent_workers_aggregate_safely():
         "max_age_days": 30,
     }
     companies = [{"name": f"Company{i}", "ats": "greenhouse", "slug": f"c{i}"} for i in range(20)]
+    db_path = str(Path(tempfile.mkdtemp()) / "test.db")
 
     def fake_fetch(company):
         time.sleep(0.005)
@@ -103,21 +106,19 @@ def test_concurrent_workers_aggregate_safely():
 
     all_new_jobs = []
     all_ambiguous_jobs = []
-    seen_jobs = {}
     with patch("job_monitor.CONNECTORS", {"greenhouse": fake_fetch}):
         with concurrent.futures.ThreadPoolExecutor(max_workers=8) as executor:
             future_to_name = {
-                executor.submit(check_company, c, filters, seen_jobs): c["name"]
+                executor.submit(check_company, c, filters, db_path): c["name"]
                 for c in companies
             }
             for future in concurrent.futures.as_completed(future_to_name):
-                log_company_result(future.result(), all_new_jobs, all_ambiguous_jobs, seen_jobs)
+                log_company_result(future.result(), all_new_jobs, all_ambiguous_jobs, db_path)
 
     assert len(all_new_jobs) == len(companies)
     assert all_ambiguous_jobs == []
-    assert len(seen_jobs) == len(companies)
     for company in companies:
-        assert seen_jobs[company["name"]]["matched_ids"] == [company["name"]]
+        assert repository.is_job_seen(company["name"], company["name"], tier="match", db_path=db_path)
     print("PASS: concurrent company checks aggregate into shared state safely")
 
 

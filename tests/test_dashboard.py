@@ -8,72 +8,68 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from dashboard import (
     DASHBOARD_CSS,
     DASHBOARD_CSS_PATH,
-    DEFAULT_SEEN_JOBS_FILE,
     apply_filters,
     build_dataframe,
-    flatten_seen_jobs,
+    flatten_rows,
     render_badge,
     render_metric_card,
     render_title_bar,
-    resolve_seen_jobs_path,
+    resolve_db_path,
 )
 
 
-NEW_FORMAT = {
-    "Acme": {
-        "matched_ids": ["a"],
-        "ambiguous_ids": ["b"],
-        "details": {
-            "a": {
-                "title": "Security Engineer", "location": "Singapore", "posted": "",
-                "posted_days_ago": 3, "link": "https://x/a", "ats": "greenhouse",
-                "first_seen": "2026-08-01T00:00:00+00:00",
-            },
-            "b": {
-                "title": "IT Analyst", "location": "", "posted": "",
-                "posted_days_ago": None, "link": "https://x/b", "ats": "greenhouse",
-                "first_seen": "2026-08-02T00:00:00+00:00",
-            },
-        },
+def _row(job_id, tier="match", title="Security Engineer", first_seen="2026-08-01T00:00:00+00:00", **overrides):
+    row = {
+        "company": "Acme",
+        "job_id": job_id,
+        "tier": tier,
+        "title": title,
+        "location": "Singapore",
+        "posted": "",
+        "posted_days_ago": 3,
+        "url": f"https://x/{job_id}",
+        "ats_platform": "greenhouse",
+        "first_seen_at": first_seen,
     }
-}
-
-OLD_FORMAT = {
-    "Acme": {"matched_ids": ["a"], "ambiguous_ids": ["b"]},
-}
+    row.update(overrides)
+    return row
 
 
-def test_flatten_new_format():
-    rows = flatten_seen_jobs(NEW_FORMAT)
+ROWS = [
+    _row("a"),
+    _row("b", tier="ambiguous", title="IT Analyst", first_seen="2026-08-02T00:00:00+00:00"),
+]
+
+
+def test_flatten_rows_full_detail():
+    rows = flatten_rows(ROWS)
     assert len(rows) == 2
     by_id = {r["id"]: r for r in rows}
     assert by_id["a"]["company"] == "Acme"
     assert by_id["a"]["title"] == "Security Engineer"
     assert by_id["a"]["ats"] == "greenhouse"
     assert by_id["a"]["date_matched"] == "2026-08-01T00:00:00+00:00"
-    print("PASS: new-format records flatten with full detail")
+    print("PASS: database rows flatten with full detail")
 
 
-def test_flatten_old_format_does_not_crash():
-    rows = flatten_seen_jobs(OLD_FORMAT)
-    assert len(rows) == 2
-    titles = {r["id"]: r["title"] for r in rows}
-    assert titles["a"] == "a"  # id stands in for the missing title
-    assert all(r["ats"] == "" for r in rows)
-    assert all(r["date_matched"] == "" for r in rows)
-    print("PASS: pre-v3.0 records flatten without crashing")
+def test_flatten_rows_blank_title_falls_back_to_id():
+    rows = flatten_rows([_row("a", title="")])
+    assert rows[0]["title"] == "a"  # job id stands in for the missing title
+    assert rows[0]["ats"] == "greenhouse"
+    assert rows[0]["date_matched"] == "2026-08-01T00:00:00+00:00"
+    print("PASS: rows with a blank title flatten without crashing")
 
 
-def test_tier_derivation():
-    rows = flatten_seen_jobs(NEW_FORMAT)
+def test_tier_preserved_in_flatten():
+    rows = flatten_rows(ROWS)
     tiers = {r["id"]: r["tier"] for r in rows}
     assert tiers["a"] == "match"
     assert tiers["b"] == "ambiguous"
-    print("PASS: tier derived from matched/ambiguous id lists")
+    print("PASS: tier carried through from the database row")
 
 
 def test_build_dataframe():
-    df = build_dataframe(flatten_seen_jobs(NEW_FORMAT))
+    df = build_dataframe(flatten_rows(ROWS))
     assert len(df) == 2
     assert df["date_matched"].notna().all()
     assert list(df.columns) == [
@@ -86,7 +82,7 @@ def test_build_dataframe():
 def test_build_dataframe_normalizes_tz():
     # first_seen is written as UTC-aware ISO strings; the column must be
     # tz-naive so the date-range filter (naive dates from the widget) works.
-    df = build_dataframe(flatten_seen_jobs(NEW_FORMAT))
+    df = build_dataframe(flatten_rows(ROWS))
     assert df["date_matched"].dtype.kind == "M"  # datetime64
     assert df["date_matched"].dt.tz is None      # tz-naive
     assert df["date_matched"].notna().all()
@@ -94,7 +90,7 @@ def test_build_dataframe_normalizes_tz():
 
 
 def test_date_range_filter_works():
-    df = build_dataframe(flatten_seen_jobs(NEW_FORMAT))
+    df = build_dataframe(flatten_rows(ROWS))
     result = apply_filters(df, [], [], ("2026-08-02", "2026-08-02"))
     assert len(result) == 1
     assert result.iloc[0]["id"] == "b"
@@ -102,7 +98,7 @@ def test_date_range_filter_works():
 
 
 def test_filters_by_company_and_tier():
-    df = build_dataframe(flatten_seen_jobs(NEW_FORMAT))
+    df = build_dataframe(flatten_rows(ROWS))
     result = apply_filters(df, ["Acme"], ["match"], (None, None))
     assert len(result) == 1
     assert result.iloc[0]["id"] == "a"
@@ -110,37 +106,38 @@ def test_filters_by_company_and_tier():
 
 
 def test_filters_without_date_range_keep_nat_rows():
-    df = build_dataframe(flatten_seen_jobs(OLD_FORMAT))
+    df = build_dataframe(flatten_rows([_row("a", first_seen="")]))
     result = apply_filters(df, [], [], (None, None))
-    assert len(result) == 2
+    assert len(result) == 1
     print("PASS: rows with unparseable dates survive when no date range is set")
 
 
 def test_path_defaults_to_project_root():
+    from db import repository
     with patch.dict("os.environ", {}, clear=True):
         with patch("sys.argv", ["dashboard.py"]):
-            assert resolve_seen_jobs_path() == DEFAULT_SEEN_JOBS_FILE
-    print("PASS: default path is the repo-relative seen_jobs.json")
+            assert resolve_db_path() == str(repository.get_db_path())
+    print("PASS: default path is the repo-relative database file")
 
 
 def test_path_env_var_wins():
-    with patch.dict("os.environ", {"SEEN_JOBS_PATH": "C:/other/seen_jobs.json"}):
+    with patch.dict("os.environ", {"DB_PATH": "C:/other/jobmonitor.db"}):
         with patch("sys.argv", ["dashboard.py"]):
-            assert resolve_seen_jobs_path() == "C:/other/seen_jobs.json"
-    print("PASS: SEEN_JOBS_PATH env var overrides the default")
+            assert resolve_db_path() == "C:/other/jobmonitor.db"
+    print("PASS: DB_PATH env var overrides the default")
 
 
 def test_path_cli_flag_wins():
     with patch.dict("os.environ", {}, clear=True):
-        with patch("sys.argv", ["dashboard.py", "--seen-jobs", "D:/custom/seen.json"]):
-            assert resolve_seen_jobs_path() == "D:/custom/seen.json"
-    print("PASS: --seen-jobs CLI flag overrides everything")
+        with patch("sys.argv", ["dashboard.py", "--db-path", "D:/custom/jobmonitor.db"]):
+            assert resolve_db_path() == "D:/custom/jobmonitor.db"
+    print("PASS: --db-path CLI flag overrides everything")
 
 
 def test_path_cli_flag_beats_env_var():
-    with patch.dict("os.environ", {"SEEN_JOBS_PATH": "C:/other/seen_jobs.json"}):
-        with patch("sys.argv", ["dashboard.py", "--seen-jobs", "D:/custom/seen.json"]):
-            assert resolve_seen_jobs_path() == "D:/custom/seen.json"
+    with patch.dict("os.environ", {"DB_PATH": "C:/other/jobmonitor.db"}):
+        with patch("sys.argv", ["dashboard.py", "--db-path", "D:/custom/jobmonitor.db"]):
+            assert resolve_db_path() == "D:/custom/jobmonitor.db"
     print("PASS: CLI flag beats env var when both are set")
 
 
@@ -197,13 +194,13 @@ def test_render_metric_card_escapes_value():
 
 
 if __name__ == "__main__":
-    test_flatten_new_format()
-    test_flatten_old_format_does_not_crash()
-    test_tier_derivation()
+    test_flatten_rows_full_detail()
+    test_flatten_rows_blank_title_falls_back_to_id()
+    test_tier_preserved_in_flatten()
     test_build_dataframe()
     test_build_dataframe_normalizes_tz()
     test_date_range_filter_works()
-    test_filters_by_company_ats_tier()
+    test_filters_by_company_and_tier()
     test_filters_without_date_range_keep_nat_rows()
     test_path_defaults_to_project_root()
     test_path_env_var_wins()

@@ -24,11 +24,11 @@ except ModuleNotFoundError:
     CUSTOM_HANDLERS = {}
 from utils.notifier import send_notification
 from utils.skip_tracker import SkipTracker
+from db import repository
 
 operational_logger = logging.getLogger("job_monitor.operational")
  
 CONFIG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.json")
-SEEN_JOBS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "seen_jobs.json")
 
 skip_tracker = SkipTracker()
 MAX_CONCURRENT_COMPANIES = 15
@@ -102,62 +102,7 @@ def matches_filters(job, filters):
     return "match"
  
  
-def load_seen_jobs():
-    # Structure: { "Company Name": {"matched_ids": [...], "ambiguous_ids": [...]}, ... }
-    # Both lists are tracked so ambiguous postings only notify once too,
-    # instead of re-appearing in every single run's email forever.
-
-    if not os.path.exists(SEEN_JOBS_FILE):
-        return {}
-    with open(SEEN_JOBS_FILE, "r", encoding="utf-8") as f:
-        return json.load(f)
- 
- 
-def save_seen_jobs(seen_jobs):
-    with open(SEEN_JOBS_FILE, "w", encoding="utf-8") as f:
-        json.dump(seen_jobs, f, indent=2)
-
-
-def build_company_record(company, current_jobs, ambiguous_jobs, previous_record, now_iso=None):
-    # Builds the stored entry for one company in seen_jobs.json.
-    #
-    # Dedup identity stays the job id per company (matched_ids / ambiguous_ids
-    # are unchanged, same mechanism as before). Since v3.0 an extra "details"
-    # map is written too, keyed by job id, so the dashboard can show titles,
-    # links, ATS platform, and the date each posting was first matched.
-    #
-    # first_seen is preserved for ids already in the previous record and set
-    # to now for brand-new ones. Records written before v3.0 have no details
-    # at all, so their ids get backfilled with now on the first v3.0 run.
-
-    if now_iso is None:
-        now_iso = datetime.now(timezone.utc).isoformat()
-
-    previous_record = previous_record or {}
-    previous_details = previous_record.get("details", {})
-
-    details = {}
-    for job in current_jobs + ambiguous_jobs:
-        job_id = job["id"]
-        previous = previous_details.get(job_id, {})
-        details[job_id] = {
-            "title": job.get("title", "Untitled"),
-            "location": job.get("location", "Unknown"),
-            "posted": job.get("posted", ""),
-            "posted_days_ago": job.get("posted_days_ago"),
-            "link": job.get("link", ""),
-            "ats": company.get("ats", "unknown"),
-            "first_seen": previous.get("first_seen", now_iso),
-        }
-
-    return {
-        "matched_ids": [job["id"] for job in current_jobs],
-        "ambiguous_ids": [job["id"] for job in ambiguous_jobs],
-        "details": details,
-    }
-
-
-def check_company(company, filters, seen_jobs):
+def check_company(company, filters, db_path):
     # Fetches and classifies one company's postings. Returns a structured
     # dict so the caller (main thread) can log and aggregate results without
     # multiple workers racing on shared state.
@@ -188,9 +133,9 @@ def check_company(company, filters, seen_jobs):
         return {"name": name, "ats": ats, "status": "skipped", "skip_reason": raw_jobs}
 
     # Split fetched jobs into: relevant matches, ambiguous, and the rest.
-    # Only "match" and "ambiguous" jobs get saved to seen_jobs = anything
-    # clearly irrelevant (wrong location, wrong keyword) is dropped here
-    # so it never counts toward "new" and never needs to be tracked.
+    # Only "match" and "ambiguous" jobs get persisted to the database =
+    # anything clearly irrelevant (wrong location, wrong keyword) is dropped
+    # here so it never counts toward "new" and never needs to be tracked.
     current_jobs = []
     ambiguous_jobs = []
     for job in raw_jobs:
@@ -200,9 +145,9 @@ def check_company(company, filters, seen_jobs):
         elif result == "ambiguous":
             ambiguous_jobs.append(job)
 
-    previous_record = seen_jobs.get(name, {})
-    previous_matched_ids = set(previous_record.get("matched_ids", []))
-    previous_ambiguous_ids = set(previous_record.get("ambiguous_ids", []))
+    previous_ids = {r["job_id"]: r["tier"] for r in repository.list_jobs(company=name, db_path=db_path)}
+    previous_matched_ids = {job_id for job_id, tier in previous_ids.items() if tier == "match"}
+    previous_ambiguous_ids = {job_id for job_id, tier in previous_ids.items() if tier == "ambiguous"}
 
     new_jobs = [job for job in current_jobs if job["id"] not in previous_matched_ids]
     new_ambiguous_jobs = [job for job in ambiguous_jobs if job["id"] not in previous_ambiguous_ids]
@@ -211,16 +156,14 @@ def check_company(company, filters, seen_jobs):
         "name": name,
         "ats": ats,
         "status": "ok",
-        "company": company,
         "current_jobs": current_jobs,
         "ambiguous_jobs": ambiguous_jobs,
         "new_jobs": new_jobs,
         "new_ambiguous_jobs": new_ambiguous_jobs,
-        "previous_record": previous_record,
     }
 
 
-def log_company_result(result, all_new_jobs, all_ambiguous_jobs, seen_jobs):
+def log_company_result(result, all_new_jobs, all_ambiguous_jobs, db_path):
     name = result["name"]
     ats = result["ats"]
     status = result["status"]
@@ -265,28 +208,51 @@ def log_company_result(result, all_new_jobs, all_ambiguous_jobs, seen_jobs):
             operational_logger.info("[%s]  ? %s | %s", name, job['title'], job['location'])
             all_ambiguous_jobs.append({**job, "company": name})
 
-    previous_record = result["previous_record"]
-    if "details" not in previous_record and (
-        previous_record.get("matched_ids") or previous_record.get("ambiguous_ids")
-    ):
-        operational_logger.info("[%s] [MIGRATE] pre-v3.0 record found, backfilling match dates", name)
-    seen_jobs[name] = build_company_record(result["company"], current_jobs, ambiguous_jobs, previous_record)
+    now_iso = datetime.now(timezone.utc).isoformat()
+    for job in current_jobs:
+        repository.mark_job_seen(
+            job_id=job["id"],
+            company=name,
+            title=job.get("title", "Untitled"),
+            location=job.get("location", "Unknown"),
+            url=job.get("link", ""),
+            ats_platform=ats,
+            tier="match",
+            posted=job.get("posted", ""),
+            posted_days_ago=job.get("posted_days_ago"),
+            first_seen_at=now_iso,
+            db_path=db_path,
+        )
+    for job in ambiguous_jobs:
+        repository.mark_job_seen(
+            job_id=job["id"],
+            company=name,
+            title=job.get("title", "Untitled"),
+            location=job.get("location", "Unknown"),
+            url=job.get("link", ""),
+            ats_platform=ats,
+            tier="ambiguous",
+            posted=job.get("posted", ""),
+            posted_days_ago=job.get("posted_days_ago"),
+            first_seen_at=now_iso,
+            db_path=db_path,
+        )
 
 def main():
     setup_logging()
     companies, filters = load_config()
-    seen_jobs = load_seen_jobs()
+    db_path = str(repository.get_db_path())
 
     all_new_jobs = []       # relevant new postings, across all companies
     all_ambiguous_jobs = [] # postings that passed keywords but location/date is unclear
 
     # Fetch and classify every company concurrently. Each worker only reads
-    # seen_jobs for its own name; aggregation and logging happen in this main
-    # thread after each future completes, so no locking is needed on the
-    # shared lists or the seen_jobs dict.
+    # dedup state for its own name from the shared database; aggregation,
+    # logging, and persistence happen in this main thread after each future
+    # completes, so no locking is needed on the shared lists.
     with concurrent.futures.ThreadPoolExecutor(max_workers=MAX_CONCURRENT_COMPANIES) as executor:
         future_to_name = {
-            executor.submit(check_company, company, filters, seen_jobs): company["name"]
+            executor.submit(check_company, company, filters, db_path): company["name"]
             for company in companies
         }
         for future in concurrent.futures.as_completed(future_to_name):
@@ -296,9 +262,7 @@ def main():
             except Exception as e:
                 operational_logger.error("  [ERROR] Failed to check %s: %s", name, e)
                 continue
-            log_company_result(result, all_new_jobs, all_ambiguous_jobs, seen_jobs)
-
-    save_seen_jobs(seen_jobs)
+            log_company_result(result, all_new_jobs, all_ambiguous_jobs, db_path)
  
     operational_logger.info("")
     operational_logger.info("%s", "=" * 50)

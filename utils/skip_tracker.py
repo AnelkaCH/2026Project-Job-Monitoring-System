@@ -1,59 +1,35 @@
-import json
 import logging
-import threading
-from pathlib import Path
 from typing import Dict
- 
-logger = logging.getLogger(__name__)
- 
-# Anchored to this file's own location, not the working directory, so it
-# lands next to seen_jobs.json regardless of where the script is invoked
-# from. This matters in GitHub Actions specifically: whatever workflow step
-# already commits seen_jobs.json back to the repo (needed for its own
-# cross-cycle dedup) should pick this file up too, since it sits right
-# beside it - no separate persistence mechanism needed for this file alone.
-DEFAULT_PATH = Path(__file__).resolve().parent.parent / "data" / "skip_history.json"
-DEFAULT_FLAG_THRESHOLD = 3  # flag in email after this many consecutive skips
 
-# Every adapter module builds its own SkipTracker instance, but they all write
-# the same skip_history.json file. A single module-level lock keeps concurrent
-# workers (job_monitor runs adapters via ThreadPoolExecutor) from racing on
-# that shared file.
-_file_lock = threading.Lock()
+from db import repository
+
+logger = logging.getLogger(__name__)
+
+DEFAULT_FLAG_THRESHOLD = 3  # flag in email after this many consecutive skips
 
 
 class SkipTracker:
-    def __init__(self, path: Path = DEFAULT_PATH, flag_threshold: int = DEFAULT_FLAG_THRESHOLD):
-        self.path = Path(path)
+    # Consecutive-skip streaks now live in the SQLite database via
+    # db/repository.py instead of a JSON file. Every adapter builds its own
+    # SkipTracker instance, but they all write the same database; each
+    # repository call opens its own connection, so concurrent workers
+    # (job_monitor runs adapters via ThreadPoolExecutor) never race on a
+    # shared handle.
+
+    def __init__(self, db_path=None, flag_threshold: int = DEFAULT_FLAG_THRESHOLD):
+        self.db_path = db_path
         self.flag_threshold = flag_threshold
-        self.data: Dict[str, int] = self._load()
-
-    def _load(self) -> Dict[str, int]:
-        if self.path.exists():
-            try:
-                return json.loads(self.path.read_text())
-            except (json.JSONDecodeError, OSError) as exc:
-                logger.warning("Could not read %s, starting fresh: %s", self.path, exc)
-        return {}
-
-    def _save(self):
-        self.path.write_text(json.dumps(self.data, indent=2))
 
     def record_skip(self, company: str) -> int:
         """Call when a company is skipped this cycle due to rate limiting.
         Returns the new consecutive-skip count."""
-        with _file_lock:
-            self.data[company] = self.data.get(company, 0) + 1
-            self._save()
-            return self.data[company]
+        return repository.record_skip(company, db_path=self.db_path)
 
     def record_success(self, company: str):
         # Call when a company completes successfully, resetting its streak.
-        with _file_lock:
-            if company in self.data:
-                del self.data[company]
-                self._save()
+        repository.reset_skip_streak(company, db_path=self.db_path)
 
     def get_flagged(self) -> Dict[str, int]:
         # Companies at or above the flag threshold, for the email notification.
-        return {c: n for c, n in self.data.items() if n >= self.flag_threshold}
+        streaks = repository.list_skip_streaks(db_path=self.db_path)
+        return {c: n for c, n in streaks.items() if n >= self.flag_threshold}

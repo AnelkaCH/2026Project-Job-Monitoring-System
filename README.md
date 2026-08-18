@@ -28,7 +28,7 @@ I was tracking internship and job openings across cybersecurity, cloud, and tech
 - **Interactive dashboard**: a Streamlit jobs viewer that turns the match history into a filterable table (company, title, date matched)
 - **Adapter pattern** supporting 10+ ATS platforms (Greenhouse, Lever, Ashby, SmartRecruiters, Recruitee, Workable, Personio, Workday, SAP SuccessFactors, plus custom handlers)
 - **Tiered classification**: config-driven role+domain keyword AND logic, location, exclude-keyword, and age filters sort jobs into match / ambiguous / no_match tiers
-- **Deduplication**: previously seen job IDs are stored in `seen_jobs.json` so the same posting is never reported twice
+- **Deduplication**: previously seen job IDs are stored in a SQLite database so the same posting is never reported twice
 - **Email notifications**: HTML email alerts for new matches, ambiguous jobs, and repeatedly skipped companies
 - **Robots.txt compliance**: every request is preceded by a robots.txt check; paths are treated as disallowed if the file is unreachable
 - **Rate limiting**: per-company requests-per-minute cap with exponential backoff and jitter on throttle signals
@@ -53,11 +53,11 @@ A Streamlit app (`dashboard.py`) gives the match history a usable face: a filter
 streamlit run dashboard.py
 ```
 
-The dashboard reads `seen_jobs.json`, and the path is configurable so anyone who forks the repo can point it at their own data without editing code:
+The dashboard reads the SQLite database, and the path is configurable so anyone who forks the repo can point it at their own data without editing code:
 
 ```bash
-SEEN_JOBS_PATH=/path/to/seen_jobs.json streamlit run dashboard.py
-streamlit run dashboard.py -- --seen-jobs /path/to/seen_jobs.json
+DB_PATH=/path/to/jobmonitor.db streamlit run dashboard.py
+streamlit run dashboard.py -- --db-path /path/to/jobmonitor.db
 ```
 
 ## Getting Started
@@ -83,7 +83,7 @@ Copy the example env file and fill in your own values:
 cp .env.example .env
 ```
 
-See [`.env.example`](./.env.example) for the required variables (EMAIL_ADDRESS, EMAIL_APP_PASSWORD, RECIPIENT_EMAIL).
+See [`.env.example`](./.env.example) for the required variables (EMAIL_ADDRESS, EMAIL_APP_PASSWORD, RECIPIENT_EMAIL, DB_PATH). `DB_PATH` sets the location of the SQLite database that stores seen postings and skip streaks; it defaults to `data/jobmonitor.db` when unset.
 
 Then copy the example config and set up which companies to track:
 
@@ -105,7 +105,7 @@ Run all tests with:
 pytest tests/
 ```
 
-116 tests across seven modules covering the security-critical infrastructure, the dashboard data layer, and keyword matching: rate limiter (6 tests), robots.txt compliance checker (15 tests), audit logging / hard-stop detection (15 tests), seen_jobs enrichment (6 tests), dashboard flattening, filtering, and path resolution (18 tests), input validation / sanitization (48 tests, one skipped by design for the SAP optional-title case), and keyword matching / concurrent aggregation (8 tests). Tests use `unittest.mock` to avoid real network or filesystem I/O and are safe to run without configuration.
+119 tests across seven modules covering the security-critical infrastructure, the database persistence layer, the dashboard data layer, and keyword matching: rate limiter (6 tests), robots.txt compliance checker (15 tests), audit logging / hard-stop detection (15 tests), database persistence / dedup / skip streaks (9 tests), dashboard flattening, filtering, and path resolution (18 tests), input validation / sanitization (48 tests, one skipped by design for the SAP optional-title case), and keyword matching / concurrent aggregation (8 tests). Tests use `unittest.mock` and per-test temporary databases to avoid real network or filesystem I/O and are safe to run without configuration.
 
 ### Optional: Pre-Commit Hook
 
@@ -122,7 +122,7 @@ pre-commit install
 python job_monitor.py
 ```
 
-New matches get logged to `seen_jobs.json` and emailed if they pass the filters. Already-seen postings are skipped on future runs.
+New matches get logged to the SQLite database and emailed if they pass the filters. Already-seen postings are skipped on future runs.
 
 To view the tracked postings in the dashboard:
 
@@ -157,18 +157,21 @@ JobMonitoring/
     custom_handler_example.py Template for new custom handlers
   utils/                      Shared infrastructure
     rate_limiter.py           Per-company rate limiting + backoff
-    skip_tracker.py           Cross-cycle skip streak tracker
+    skip_tracker.py           Cross-cycle skip streak tracker (SQLite-backed)
     robots_check.py           Robots.txt compliance checker
     audit_log.py              Dual-stream audit + operational logging
     notifier.py               HTML email notifications via Gmail SMTP
     date_utils.py             Date format converters per ATS
     schema.py                 Input validation and sanitization
     matching.py               Word-boundary keyword matching helpers
-  tests/                      Unit tests (116 total, 1 skipped by design)
+  db/                         SQLite persistence layer
+    schema.py                 Table definitions and init_db()
+    repository.py             Reads/writes for jobs and skip streaks
+  tests/                      Unit tests (119 total, 1 skipped by design)
     test_rate_limiter.py      Rate limiter tests (6)
     test_robots_check.py      Robots.txt compliance tests (15)
     test_audit_log.py         Audit log and hard-stop tests (15)
-    test_seen_jobs.py         seen_jobs enrichment tests (6)
+    test_db.py                Database persistence / dedup / skip streak tests (9)
     test_dashboard.py         Dashboard data-layer tests (18)
     test_schema.py            Input validation / sanitization tests (48)
     test_matching.py          Keyword matching / concurrency tests (8)
@@ -177,8 +180,7 @@ JobMonitoring/
   static/                     UI assets for the dashboard
     win95_theme.css           Win95-chrome stylesheet
   data/                       Runtime state files (gitignored)
-    seen_jobs.json            Deduplication state (persisted)
-    skip_history.json         Skip streak state (persisted)
+    jobmonitor.db             SQLite database: seen postings + skip streaks
   logs/                       Runtime log files (gitignored)
   documentation/              Screenshots and supporting images
   .github/

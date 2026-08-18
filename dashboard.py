@@ -1,23 +1,25 @@
 # Streamlit dashboard for the job monitoring system (v3.1.1).
 #
-# Reads the enriched seen_jobs.json written by job_monitor.py and renders a
-# filterable table of every matched / ambiguous posting: company, title, ATS
-# platform, and the date it was first matched.
+# Reads the tracked postings from the SQLite database written by
+# job_monitor.py and renders a filterable table of every matched / ambiguous
+# posting: company, title, ATS platform, and the date it was first matched.
 #
-# The path to seen_jobs.json is configurable so the tool stays reusable for
-# anyone who forks the repo and runs their own monitor. Resolution order:
-#     SEEN_JOBS_PATH env var  overrides  repo default
-#     --seen-jobs CLI flag    overrides  SEEN_JOBS_PATH env var
+# The database path is configurable so the tool stays reusable for anyone
+# who forks the repo and runs their own monitor. Resolution order:
+#     DB_PATH env var  overrides  repo default
+#     --db-path CLI flag  overrides  DB_PATH env var
 #
 # Usage:
 #     streamlit run dashboard.py
-#     SEEN_JOBS_PATH=/path/to/seen_jobs.json streamlit run dashboard.py
-#     streamlit run dashboard.py -- --seen-jobs /path/to/seen_jobs.json
+#     DB_PATH=/path/to/jobmonitor.db streamlit run dashboard.py
+#     streamlit run dashboard.py -- --db-path /path/to/jobmonitor.db
 
 import argparse
 import html
-import json
 import os
+import sqlite3
+
+from db import repository
 
 try:
     import pandas as pd
@@ -27,8 +29,6 @@ except ImportError:
     pd = None
     st = None
     _STREAMLIT_AVAILABLE = False
-
-DEFAULT_SEEN_JOBS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "seen_jobs.json")
 
 # Dashboard theming (v3.1.1). The stylesheet lives in its own file so it
 # stays maintainable, and it is wrapped in a <style> tag here (required for
@@ -85,63 +85,36 @@ def render_metric_card(label, value):
     """
 
 
-def resolve_seen_jobs_path():
+def resolve_db_path():
     # Env var first, then CLI flag, then the repo default. argparse's default
     # reads the env var so a flag still wins when both are set.
     parser = argparse.ArgumentParser(description="Job Monitor Dashboard")
     parser.add_argument(
-        "--seen-jobs",
-        default=os.environ.get("SEEN_JOBS_PATH") or DEFAULT_SEEN_JOBS_FILE,
-        help="Path to seen_jobs.json (default: SEEN_JOBS_PATH env var or repo file)",
+        "--db-path",
+        default=os.environ.get("DB_PATH") or str(repository.get_db_path()),
+        help="Path to the SQLite database (default: DB_PATH env var or repo file)",
     )
     args, _ = parser.parse_known_args()
-    return args.seen_jobs
+    return args.db_path
 
 
-def load_seen_jobs(path):
-    # Returns the parsed dict, or None if the file does not exist yet.
-    # Malformed JSON raises JSONDecodeError for the caller to surface.
-    if not os.path.exists(path):
-        return None
-    with open(path, "r", encoding="utf-8") as f:
-        return json.load(f)
-
-
-def flatten_seen_jobs(seen_jobs):
-    # Flattens seen_jobs.json into one row per posting.
-    #
-    # Since v3.0 the file stores a "details" map per company (title, link,
-    # ats, first_seen) alongside the dedup id lists. Pre-v3.0 files have no
-    # details, so the job id stands in for the title and date/ats are blank
-    # rather than crashing the view.
-    rows = []
-    for company, record in seen_jobs.items():
-        record = record or {}
-        details = record.get("details", {})
-        matched = set(record.get("matched_ids", []))
-        ambiguous = set(record.get("ambiguous_ids", []))
-
-        all_ids = list(details.keys()) or list(matched) + list(ambiguous)
-        for job_id in all_ids:
-            detail = details.get(job_id, {})
-            if job_id in matched:
-                tier = "match"
-            elif job_id in ambiguous:
-                tier = "ambiguous"
-            else:
-                tier = "match"
-            rows.append({
-                "company": company,
-                "title": detail.get("title", job_id),
-                "location": detail.get("location", ""),
-                "link": detail.get("link", ""),
-                "ats": detail.get("ats", ""),
-                "tier": tier,
-                "date_matched": detail.get("first_seen", ""),
-                "posted_days_ago": detail.get("posted_days_ago"),
-                "id": job_id,
-            })
-    return rows
+def flatten_rows(rows):
+    # Maps repository rows into the dashboard row shape: one row per posting
+    # with company, tier, title, location, link, ats, and first-seen date.
+    flattened = []
+    for row in rows:
+        flattened.append({
+            "company": row["company"],
+            "title": row["title"] or row["job_id"],
+            "location": row["location"] or "",
+            "link": row["url"] or "",
+            "ats": row["ats_platform"] or "",
+            "tier": row["tier"],
+            "date_matched": row["first_seen_at"] or "",
+            "posted_days_ago": row["posted_days_ago"],
+            "id": row["job_id"],
+        })
+    return flattened
 
 
 def build_dataframe(rows):
@@ -185,21 +158,17 @@ def main():
     st.set_page_config(page_title="Job Monitor Dashboard", layout="wide")
     # Own static CSS, not ATS-sourced data, so unsafe_allow_html is safe here.
     st.markdown(DASHBOARD_CSS, unsafe_allow_html=True)
-    path = resolve_seen_jobs_path()
-
     st.markdown(render_title_bar(), unsafe_allow_html=True)
 
+    path = resolve_db_path()
+
     try:
-        seen_jobs = load_seen_jobs(path)
-    except (json.JSONDecodeError, OSError) as exc:
-        st.markdown(render_badge("error", f"Could not read {path}: {exc}"), unsafe_allow_html=True)
+        db_rows = repository.list_jobs(db_path=path)
+    except sqlite3.Error as exc:
+        st.markdown(render_badge("error", f"Could not read database {path}: {exc}"), unsafe_allow_html=True)
         st.stop()
 
-    if seen_jobs is None:
-        st.warning("No seen_jobs.json found yet. Run `python job_monitor.py` at least once to populate it.")
-        st.stop()
-
-    rows = flatten_seen_jobs(seen_jobs)
+    rows = flatten_rows(db_rows)
     if not rows:
         st.info("No job records yet. Run `python job_monitor.py` to start tracking postings.")
         st.stop()
