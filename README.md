@@ -162,6 +162,34 @@ To view the tracked postings in the dashboard:
 streamlit run dashboard.py
 ```
 
+### Try it with real public demo companies
+
+No `.env` or `config.json` needed. `demo_config.json` tracks a small set of well-known public companies on real Greenhouse and Lever endpoints (Airbnb, Coinbase, Reddit, Binance, Zoox), and the monitor writes to `demo.db` instead of your private database:
+
+```bash
+python job_monitor.py --config demo_config.json --db-path demo.db
+```
+
+Then serve the API against that same database:
+
+```bash
+DB_PATH=demo.db uvicorn api.main:app --reload
+```
+
+One request already returns real postings that the demo run matched:
+
+```bash
+curl "http://127.0.0.1:8000/jobs"
+```
+
+The dashboard can point at the same data for a demo video:
+
+```bash
+DB_PATH=demo.db streamlit run dashboard.py
+```
+
+`demo_config.json` is committed; `demo.db` is runtime output and gitignored.
+
 ## Project Structure
 
 ```

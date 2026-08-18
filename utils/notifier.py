@@ -136,6 +136,13 @@ def send_notification(new_jobs, ambiguous_jobs, flagged_companies=None):
         print("No new postings, ambiguous postings, or flags - skipping email.")
         return
 
+    # Skip gracefully when no email credentials are configured (e.g. a demo
+    # run without .env) instead of crashing on a missing env var. Whenever
+    # the credentials ARE set, emailing proceeds exactly as before.
+    if not (os.environ.get("EMAIL_ADDRESS") and os.environ.get("EMAIL_APP_PASSWORD") and os.environ.get("RECIPIENT_EMAIL")):
+        print("Email credentials not configured - skipping notification.")
+        return
+
     email_address = os.environ["EMAIL_ADDRESS"]
     email_password = os.environ["EMAIL_APP_PASSWORD"]
     recipient = os.environ["RECIPIENT_EMAIL"]

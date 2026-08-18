@@ -4,6 +4,8 @@
 
 The system follows an **adapter pattern**: a single orchestrator loop in `job_monitor.py` delegates to platform-specific adapter functions (Greenhouse, Lever, Ashby, etc.), each of which normalizes results into a shared 6-field job schema before they hit the classification layer. Every adapter routes HTTP calls through a shared rate limiter and checks robots.txt compliance before the first request. Since v3.1, every ATS response is also validated and sanitized by `utils/schema.py` before normalization, so untrusted external text and URLs are checked at the boundary.
 
+The entrypoint is configurable since v3.3.2: `job_monitor.py` accepts `--config` and `--db-path` CLI flags (defaulting to the repo `config.json` and the `DB_PATH`-resolved database, so no-flag behavior is unchanged). The committed `demo_config.json` pairs with these flags so a fresh clone can run the monitor against real public Greenhouse and Lever endpoints (Airbnb, Coinbase, Reddit, Binance, Zoox) and write to a disposable `demo.db` without the private `config.json` or `.env`.
+
 ```
 [Config/Scheduler] -> [Orchestrator (job_monitor.py)]
                            |
@@ -201,8 +203,8 @@ This check runs inside the rate limiter on every successful response. If trigger
 A complete run cycle in `job_monitor.py`:
 
 1. **`setup_logging()`**: Initializes the audit and operational log streams.
-2. **`load_config()`**: Reads `config.json` for the company list and global filters (locations, role_keywords, domain_keywords, exclude_keywords, max_age_days).
-3. **`repository.get_db_path()`**: Resolves the SQLite database path (`DB_PATH` env var or `data/jobmonitor.db`); tables are created idempotently on first contact.
+2. **`load_config()`**: Reads the companies/filters config file (locations, role_keywords, domain_keywords, exclude_keywords, max_age_days). The path comes from the `--config` CLI flag, defaulting to the repo-anchored `config.json`.
+3. **DB path resolution**: The SQLite database path comes from the `--db-path` CLI flag, else `repository.get_db_path()` (`DB_PATH` env var, else `data/jobmonitor.db`); tables are created idempotently on first contact.
 4. For each company in config (dispatched concurrently via a `ThreadPoolExecutor` capped at 15 workers):
    a. Look up the fetch function: `CONNECTORS[ats]` for standard ATS, `CUSTOM_HANDLERS[handler]` for custom.
    b. Log `QUERY` audit event.

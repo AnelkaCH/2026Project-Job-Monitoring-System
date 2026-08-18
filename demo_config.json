@@ -1,0 +1,49 @@
+{
+    "filters": {
+        "locations": [
+        ],
+        "max_age_days": 90,
+        "exclude_keywords": [
+        ],
+        "role_keywords": [
+        "engineer",
+        "analyst",
+        "intern",
+        "developer"
+        ],
+        "domain_keywords": [
+        "security",
+        "software",
+        "data",
+        "cloud",
+        "platform"
+        ]
+    },
+    "companies": [
+        {
+        "name": "Airbnb",
+        "ats": "greenhouse",
+        "slug": "airbnb"
+        },
+        {
+        "name": "Coinbase",
+        "ats": "greenhouse",
+        "slug": "coinbase"
+        },
+        {
+        "name": "Reddit",
+        "ats": "greenhouse",
+        "slug": "reddit"
+        },
+        {
+        "name": "Binance",
+        "ats": "lever",
+        "slug": "binance"
+        },
+        {
+        "name": "Zoox",
+        "ats": "lever",
+        "slug": "zoox"
+        }
+    ]
+}

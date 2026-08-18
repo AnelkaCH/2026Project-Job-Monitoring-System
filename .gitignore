@@ -7,6 +7,7 @@ data/skip_history.json
 jobmonitor.db
 data/jobmonitor.db
 db/jobmonitor.db
+demo.db
 
 __pycache__/
 *.pyc

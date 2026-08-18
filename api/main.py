@@ -4,7 +4,7 @@ from api import schemas
 from api.routes_companies import load_config, router as companies_router, save_config
 from api.routes_jobs import router as jobs_router
 
-app = FastAPI(title="Job Monitor API", version="3.3.1")
+app = FastAPI(title="Job Monitor API", version="3.3.2")
 app.include_router(jobs_router)
 app.include_router(companies_router)
 

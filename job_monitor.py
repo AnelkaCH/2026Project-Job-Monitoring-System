@@ -6,7 +6,9 @@
  
 # Usage:
 #     python job_monitor.py
+#     python job_monitor.py --config demo_config.json --db-path demo.db
  
+import argparse
 import concurrent.futures
 import json
 import logging
@@ -37,6 +39,24 @@ def load_config(config_path=None):
     with open(config_path or CONFIG_FILE, "r", encoding="utf-8") as f:
         data = json.load(f)
     return data["companies"], data.get("filters", {"locations": [], "role_keywords": [], "domain_keywords": [], "exclude_keywords": []})
+
+
+def parse_args(argv=None):
+    # --config overrides which company/filter file is read (default: the
+    # repo-anchored config.json). --db-path overrides where postings are
+    # stored (default: DB_PATH from .env, else data/jobmonitor.db).
+    parser = argparse.ArgumentParser(description="Multi-company job monitor")
+    parser.add_argument(
+        "--config",
+        default=CONFIG_FILE,
+        help="Path to the companies/filters config file (default: %(default)s)",
+    )
+    parser.add_argument(
+        "--db-path",
+        default=None,
+        help="Path to the SQLite database (default: DB_PATH env var or the repo default)",
+    )
+    return parser.parse_args(argv)
  
  
 def matches_filters(job, filters):
@@ -238,10 +258,11 @@ def log_company_result(result, all_new_jobs, all_ambiguous_jobs, db_path):
             db_path=db_path,
         )
 
-def main():
+def main(argv=None):
     setup_logging()
-    companies, filters = load_config()
-    db_path = str(repository.get_db_path())
+    args = parse_args(argv)
+    companies, filters = load_config(args.config)
+    db_path = args.db_path or str(repository.get_db_path())
 
     all_new_jobs = []       # relevant new postings, across all companies
     all_ambiguous_jobs = [] # postings that passed keywords but location/date is unclear

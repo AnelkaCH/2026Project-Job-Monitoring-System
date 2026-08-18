@@ -6,6 +6,20 @@
 - Scheduler
 - Many more things to come :D
 
+## [2026-08-18] v3.3.2 - Configurable Entrypoint & Demo Mode
+### Added
+- `job_monitor.py` - `argparse` CLI flags: `--config PATH` (default: the repo-anchored `config.json`) and `--db-path PATH` (default: `DB_PATH` env var, else `data/jobmonitor.db`). Running with no flags behaves exactly as before; the flags let anyone point the monitor at a different config file and database.
+- `demo_config.json` - A committed demo config tracking 5 well-known public companies on real Greenhouse and Lever endpoints (Airbnb, Coinbase, Reddit, Binance, Zoox) with generic demo filters, so a fresh clone can produce real output without the private `config.json` or `.env`.
+- `README.md` - New "Try it with real public demo companies" subsection under Getting Started: `python job_monitor.py --config demo_config.json --db-path demo.db`, serving the API against it (`DB_PATH=demo.db uvicorn api.main:app --reload`), a `curl` example against `/jobs`, and pointing the dashboard at the same database.
+
+### Changed
+- `utils/notifier.py` - `send_notification()` now skips gracefully with a console notice when `EMAIL_ADDRESS` / `EMAIL_APP_PASSWORD` / `RECIPIENT_EMAIL` are not configured, instead of raising `KeyError`. Email still sends whenever credentials are present, so the flagged-companies trigger logic is unchanged.
+- `.gitignore` - Added `demo.db` (runtime output of demo mode). `demo_config.json` stays committed.
+- `dashboard.py` - No code change needed: it already resolves the database via `DB_PATH` (loaded from `.env`) or the `--db-path` flag, so it can point at `demo.db` for the demo.
+
+### Fixed
+- (none)
+
 ## [2026-08-18] v3.3.1 - FastAPI Read Layer
 ### Added
 - `api/` package - A thin, read-mostly FastAPI layer over `db/repository.py` with no new business logic:
