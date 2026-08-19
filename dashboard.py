@@ -1,25 +1,35 @@
-# Streamlit dashboard for the job monitoring system (v3.1.1).
+# Streamlit dashboard for the job monitoring system (v3.4).
 #
-# Reads the tracked postings from the SQLite database written by
-# job_monitor.py and renders a filterable table of every matched / ambiguous
-# posting: company, title, ATS platform, and the date it was first matched.
+# Three tabs:
+#   Postings         - the filterable matched / ambiguous table from the
+#                      SQLite database written by job_monitor.py
+#   Audit / Security - Tier 3 hard-stop events and per-cycle classification
+#                      counts, parsed from logs/audit.log (JSON lines)
+#   Operations       - skip events (robots.txt, rate limits, bot-detection)
+#                      parsed from logs/operational.log
 #
-# The database path is configurable so the tool stays reusable for anyone
-# who forks the repo and runs their own monitor. Resolution order:
+# The database and log paths are configurable so the tool stays reusable for
+# anyone who forks the repo and runs their own monitor. Resolution order:
 #     DB_PATH env var  overrides  repo default
 #     --db-path CLI flag  overrides  DB_PATH env var
+#     LOG_DIR env var  overrides  repo logs dir
+#     --log-dir CLI flag  overrides  LOG_DIR env var
 #
 # Usage:
 #     streamlit run dashboard.py
 #     DB_PATH=/path/to/jobmonitor.db streamlit run dashboard.py
 #     streamlit run dashboard.py -- --db-path /path/to/jobmonitor.db
+#     streamlit run dashboard.py -- --log-dir /path/to/logs
 
 import argparse
 import html
+import json
 import os
+import re
 import sqlite3
 
 from db import repository
+from utils.audit_log import LOG_DIR
 
 try:
     import pandas as pd
@@ -98,6 +108,174 @@ def resolve_db_path():
     return args.db_path
 
 
+def resolve_log_dir():
+    # --log-dir flag first, then LOG_DIR env var, then the repo logs dir.
+    parser = argparse.ArgumentParser(description="Job Monitor Dashboard")
+    parser.add_argument(
+        "--log-dir",
+        default=os.environ.get("LOG_DIR") or str(LOG_DIR),
+        help="Path to the logs directory (default: LOG_DIR env var or repo logs dir)",
+    )
+    args, _ = parser.parse_known_args()
+    return args.log_dir
+
+
+# Audit / operational log parsing (v3.4).
+# The audit log is JSON lines written by utils/audit_log.py; the operational
+# log is a timestamped plain-text stream. Both are read with stdlib json/re so
+# the dashboard adds no new dependencies. The logs are runtime output, not
+# trusted input, but they are still rendered through Streamlit's default
+# escaping and the same render_badge / render_metric_card escape helpers.
+
+# A monitoring run carries no explicit id, so cycles are inferred from
+# timestamps: a new cycle starts when consecutive events are more than this
+# many seconds apart.
+AUDIT_CYCLE_GAP_SECONDS = 30 * 60
+
+_SKIP_LINE_RE = re.compile(
+    r"^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}),\d+ \[WARNING\] Skipping (.+?) this cycle: (.+)$"
+)
+_STREAK_RE = re.compile(r"\(streak: (\d+)\)\s*$")
+
+
+def _parse_timestamp(value):
+    # Tolerant parse of ISO (audit) and log-local (operational) timestamps into
+    # a pandas Timestamp; unparseable values become NaT.
+    return pd.to_datetime(value, errors="coerce")
+
+
+def parse_audit_log(path):
+    # Reads the JSON-lines audit log into a list of dicts. A malformed or
+    # partial trailing line (possible after a rotation) is skipped rather than
+    # failing the whole panel.
+    records = []
+    if not os.path.exists(path):
+        return records
+    with open(path, "r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                record = json.loads(line)
+            except (json.JSONDecodeError, ValueError):
+                continue
+            if isinstance(record, dict):
+                records.append(record)
+    return records
+
+
+def filter_hardstops(records):
+    # TIER3_HARDSTOP events into flat rows. The reason is a string from the
+    # monitor or a list from check_hardstop(), and the platform key is either
+    # 'platform' (rate limiter) or 'ats' (monitor), so both are normalized.
+    rows = []
+    for record in records:
+        if record.get("event") != "TIER3_HARDSTOP":
+            continue
+        reason = record.get("reason")
+        if reason is None:
+            reasons = record.get("reasons") or []
+            reason = "; ".join(reasons)
+        elif isinstance(reason, list):
+            reason = "; ".join(reason)
+        rows.append({
+            "company": record.get("company", ""),
+            "platform": record.get("platform") or record.get("ats") or "",
+            "reason": reason or "",
+            "timestamp": record.get("timestamp", ""),
+        })
+    return rows
+
+
+def assign_cycles(records, gap_seconds=AUDIT_CYCLE_GAP_SECONDS):
+    # Tags a list of dicts (each with a 'timestamp') with a 'cycle' index and
+    # a 'cycle_start' Timestamp. Records with an unparseable timestamp sort
+    # last and keep the current cycle, so one bad line cannot split a run.
+    ordered = sorted(
+        records,
+        key=lambda r: (
+            pd.isna(_parse_timestamp(r.get("timestamp", ""))),
+            _parse_timestamp(r.get("timestamp", "")),
+        ),
+    )
+    cycle = 0
+    prev_ts = None
+    for record in ordered:
+        ts = _parse_timestamp(record.get("timestamp", ""))
+        if prev_ts is not None and not pd.isna(ts):
+            if (ts - prev_ts).total_seconds() > gap_seconds:
+                cycle += 1
+        record["cycle"] = cycle
+        record["cycle_start"] = ts
+        if not pd.isna(ts):
+            prev_ts = ts
+    return ordered
+
+
+def classify_cycles(records, gap_seconds=AUDIT_CYCLE_GAP_SECONDS):
+    # CLASSIFY events aggregated per run cycle: one row per cycle with the
+    # summed match / ambiguous / new counts for the st.bar_chart.
+    columns = ["cycle", "cycle_start", "match_count", "ambiguous_count", "new_count", "cycle_label"]
+    classify_rows = []
+    for record in records:
+        if record.get("event") != "CLASSIFY":
+            continue
+        classify_rows.append({
+            "company": record.get("company", ""),
+            "match_count": int(record.get("match_count", 0) or 0),
+            "ambiguous_count": int(record.get("ambiguous_count", 0) or 0),
+            "new_count": int(record.get("new_count", 0) or 0),
+            "timestamp": record.get("timestamp", ""),
+        })
+    if not classify_rows:
+        return pd.DataFrame(columns=columns)
+    tagged = assign_cycles(classify_rows, gap_seconds)
+    df = pd.DataFrame(tagged)
+    grouped = df.groupby("cycle", as_index=False).agg(
+        cycle_start=("cycle_start", "min"),
+        match_count=("match_count", "sum"),
+        ambiguous_count=("ambiguous_count", "sum"),
+        new_count=("new_count", "sum"),
+    )
+    grouped = grouped.sort_values("cycle_start").reset_index(drop=True)
+    grouped["cycle_label"] = grouped["cycle_start"].dt.strftime("%d %b %H:%M")
+    return grouped
+
+
+def parse_operational_log(path, gap_seconds=AUDIT_CYCLE_GAP_SECONDS):
+    # Reads the operational log's skip warnings into a DataFrame tagged with
+    # the inferred cycle. Only the 'Skipping X this cycle:' lines are used so
+    # the paired '[SKIPPED]' follow-up line is not double counted.
+    columns = ["cycle", "cycle_start", "company", "reason", "streak", "timestamp"]
+    rows = []
+    if os.path.exists(path):
+        with open(path, "r", encoding="utf-8") as f:
+            for line in f:
+                m = _SKIP_LINE_RE.match(line)
+                if not m:
+                    continue
+                timestamp, company, detail = m.group(1), m.group(2), m.group(3)
+                streak = None
+                sm = _STREAK_RE.search(detail)
+                if sm:
+                    streak = int(sm.group(1))
+                    detail = detail[: sm.start()].rstrip().rstrip(":").strip()
+                rows.append({
+                    "company": company,
+                    "reason": detail,
+                    "streak": streak,
+                    "timestamp": timestamp,
+                })
+    if not rows:
+        return pd.DataFrame(columns=columns)
+    tagged = assign_cycles(rows, gap_seconds)
+    frame = pd.DataFrame(tagged)
+    frame["timestamp"] = pd.to_datetime(frame["timestamp"], errors="coerce")
+    frame["cycle_start"] = pd.to_datetime(frame["cycle_start"], errors="coerce")
+    return frame
+
+
 def flatten_rows(rows):
     # Maps repository rows into the dashboard row shape: one row per posting
     # with company, tier, title, location, link, ats, and first-seen date.
@@ -150,28 +328,19 @@ def apply_filters(df, selected_companies, selected_tiers, date_range):
     return filtered
 
 
-def main():
-    if not _STREAMLIT_AVAILABLE:
-        print("This dashboard needs Streamlit. Install it with: pip install streamlit pandas")
-        return
-
-    st.set_page_config(page_title="Job Monitor Dashboard", layout="wide")
-    # Own static CSS, not ATS-sourced data, so unsafe_allow_html is safe here.
-    st.markdown(DASHBOARD_CSS, unsafe_allow_html=True)
-    st.markdown(render_title_bar(), unsafe_allow_html=True)
-
-    path = resolve_db_path()
-
+def render_postings_tab(path):
+    # The original single-page postings table, moved into its own tab so the
+    # audit and operations tabs render even when the database is empty.
     try:
         db_rows = repository.list_jobs(db_path=path)
     except sqlite3.Error as exc:
         st.markdown(render_badge("error", f"Could not read database {path}: {exc}"), unsafe_allow_html=True)
-        st.stop()
+        return
 
     rows = flatten_rows(db_rows)
     if not rows:
         st.info("No job records yet. Run `python job_monitor.py` to start tracking postings.")
-        st.stop()
+        return
 
     df = build_dataframe(rows)
 
@@ -238,13 +407,135 @@ def main():
             )
             with st.popover("About", icon=":material/info:"):
                 st.markdown(
-                    "**Job Monitor Dashboard** v3.1.1\n\n"
+                    "**Job Monitor Dashboard** v3.4\n\n"
                     "Scrapes and classifies job postings across ATS platforms, "
                     "filters by keyword and location, deduplicates results, and "
                     "sends email alerts for flagged companies.\n\n"
                     f"Source file: `{html.escape(path)}`\n\n"
                     "See README.md for setup and usage."
                 )
+
+
+def render_audit_tab(log_dir):
+    # Audit / Security panel: Tier 3 hard-stops plus per-cycle classification
+    # counts, both parsed from the JSON-lines audit log.
+    audit_path = os.path.join(log_dir, "audit.log")
+    if not os.path.exists(audit_path):
+        st.markdown(
+            render_badge("info", f"No audit log at {audit_path}. Run `python job_monitor.py` to generate one."),
+            unsafe_allow_html=True,
+        )
+        return
+
+    records = parse_audit_log(audit_path)
+    if not records:
+        st.info("Audit log is empty.")
+        return
+
+    st.subheader("Tier 3 hard-stops (bot detection)")
+    hardstops = filter_hardstops(records)
+    if hardstops:
+        st.markdown(
+            render_badge(
+                "warn",
+                f"{len(hardstops)} Tier 3 hard-stop event(s) recorded. These are deliberate stops, not bugs.",
+            ),
+            unsafe_allow_html=True,
+        )
+        hard_df = pd.DataFrame(hardstops)
+        hard_df["timestamp"] = pd.to_datetime(hard_df["timestamp"], errors="coerce").dt.tz_localize(None)
+        st.dataframe(
+            hard_df[["timestamp", "company", "platform", "reason"]],
+            width="stretch",
+            hide_index=True,
+            column_config={
+                "timestamp": st.column_config.DatetimeColumn("Timestamp", format="D MMM YYYY HH:mm"),
+                "reason": st.column_config.TextColumn("Reason", width="large"),
+            },
+        )
+    else:
+        st.info("No Tier 3 hard-stop events recorded.")
+
+    st.subheader("Classification per run cycle")
+    cycles = classify_cycles(records)
+    if not cycles.empty:
+        chart = cycles.set_index("cycle_label")[["match_count", "ambiguous_count", "new_count"]]
+        st.bar_chart(chart)
+        st.caption(
+            "Classified postings per monitoring cycle (match / ambiguous / new). "
+            "A new cycle starts when events are more than 30 minutes apart."
+        )
+        with st.expander("Classification details per cycle"):
+            st.dataframe(cycles, width="stretch", hide_index=True)
+    else:
+        st.info("No CLASSIFY events recorded yet.")
+
+
+def render_operations_tab(log_dir):
+    # Operations panel: skip events (robots.txt, rate limits, bot-detection)
+    # parsed from the operational log, with the inferred cycle and streak.
+    op_path = os.path.join(log_dir, "operational.log")
+    if not os.path.exists(op_path):
+        st.markdown(
+            render_badge(
+                "info",
+                f"No operational log at {op_path}. Run `python job_monitor.py` to generate one.",
+            ),
+            unsafe_allow_html=True,
+        )
+        return
+
+    frame = parse_operational_log(op_path)
+    if frame.empty:
+        st.info("Operational log has no skip records yet.")
+        return
+
+    col1, col2, col3 = st.columns(3)
+    max_streak = int(frame["streak"].max()) if frame["streak"].notna().any() else 0
+    for col, (label, value) in zip(
+        (col1, col2, col3),
+        (
+            ("Skip events", len(frame)),
+            ("Companies skipped", frame["company"].nunique()),
+            ("Max skip streak", max_streak),
+        ),
+    ):
+        col.markdown(render_metric_card(label, value), unsafe_allow_html=True)
+
+    st.subheader("Skip events (recent first)")
+    display = frame.sort_values("timestamp", ascending=False).reset_index(drop=True)
+    st.dataframe(
+        display[["timestamp", "company", "reason", "streak"]],
+        width="stretch",
+        hide_index=True,
+        column_config={
+            "timestamp": st.column_config.DatetimeColumn("Timestamp", format="D MMM YYYY HH:mm"),
+            "reason": st.column_config.TextColumn("Reason", width="large"),
+            "streak": st.column_config.NumberColumn("Streak", format="%d"),
+        },
+    )
+
+
+def main():
+    if not _STREAMLIT_AVAILABLE:
+        print("This dashboard needs Streamlit. Install it with: pip install streamlit pandas")
+        return
+
+    st.set_page_config(page_title="Job Monitor Dashboard", layout="wide")
+    # Own static CSS, not ATS-sourced data, so unsafe_allow_html is safe here.
+    st.markdown(DASHBOARD_CSS, unsafe_allow_html=True)
+    st.markdown(render_title_bar(), unsafe_allow_html=True)
+
+    tab_postings, tab_audit, tab_ops = st.tabs(["Postings", "Audit", "Operations"])
+
+    with tab_postings:
+        render_postings_tab(resolve_db_path())
+
+    with tab_audit:
+        render_audit_tab(resolve_log_dir())
+
+    with tab_ops:
+        render_operations_tab(resolve_log_dir())
 
 
 if __name__ == "__main__":

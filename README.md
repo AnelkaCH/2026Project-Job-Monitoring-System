@@ -47,17 +47,22 @@ The system runs on a scheduled GitHub Actions job (not yet available). Each cycl
 
 ## Dashboard
 
-A Streamlit app (`dashboard.py`) gives the match history a usable face: a filterable table of every matched and ambiguous posting, showing company, title, location, and the date each posting was first matched. Filter by company, tier (match / ambiguous), or date range.
+A Streamlit app (`dashboard.py`) gives the match history a usable face across three tabs:
+
+- **Postings** - the filterable table of every matched and ambiguous posting, showing company, title, location, and the date each posting was first matched. Filter by company, tier (match / ambiguous), or date range.
+- **Audit / Security** - Tier 3 hard-stop events (company, platform, reason, timestamp) and a per-cycle bar chart of classified postings (match / ambiguous / new), parsed from `logs/audit.log`.
+- **Operations** - skip events (robots.txt, rate limits, bot-detection) with their consecutive-skip streaks, parsed from `logs/operational.log`.
 
 ```bash
 streamlit run dashboard.py
 ```
 
-The dashboard reads the SQLite database, and the path is configurable so anyone who forks the repo can point it at their own data without editing code:
+The dashboard reads the SQLite database and both log files, and the paths are configurable so anyone who forks the repo can point it at their own data without editing code:
 
 ```bash
 DB_PATH=/path/to/jobmonitor.db streamlit run dashboard.py
 streamlit run dashboard.py -- --db-path /path/to/jobmonitor.db
+streamlit run dashboard.py -- --log-dir /path/to/logs
 ```
 
 ## Running the API
@@ -137,7 +142,7 @@ Run all tests with:
 pytest tests/
 ```
 
-128 tests across eight modules covering the security-critical infrastructure, the database persistence layer, the dashboard data layer, the read API layer, and keyword matching: rate limiter (6 tests), robots.txt compliance checker (15 tests), audit logging / hard-stop detection (15 tests), database persistence / dedup / skip streaks (9 tests), dashboard flattening, filtering, and path resolution (18 tests), API endpoints and validation (10 tests), input validation / sanitization (48 tests, one skipped by design for the SAP optional-title case), and keyword matching / concurrent aggregation (8 tests). Tests use `unittest.mock` and per-test temporary databases to avoid real network or filesystem I/O and are safe to run without configuration.
+140 tests across eight modules covering the security-critical infrastructure, the database persistence layer, the dashboard data layer, the read API layer, and keyword matching: rate limiter (6 tests), robots.txt compliance checker (15 tests), audit logging / hard-stop detection (15 tests), database persistence / dedup / skip streaks (9 tests), dashboard data and log-parsing layers (30 tests), API endpoints and validation (10 tests), input validation / sanitization (48 tests, one skipped by design for the SAP optional-title case), and keyword matching / concurrent aggregation (8 tests). Tests use `unittest.mock` and per-test temporary databases to avoid real network or filesystem I/O and are safe to run without configuration.
 
 ### Optional: Pre-Commit Hook
 
@@ -232,12 +237,12 @@ JobMonitoring/
     schemas.py                Pydantic response/request models
     routes_jobs.py            GET /jobs and GET /jobs/{job_id}
     routes_companies.py       GET /companies and GET /companies/{name}
-  tests/                      Unit tests (128 total, 1 skipped by design)
+  tests/                      Unit tests (140 total, 1 skipped by design)
     test_rate_limiter.py      Rate limiter tests (6)
     test_robots_check.py      Robots.txt compliance tests (15)
     test_audit_log.py         Audit log and hard-stop tests (15)
     test_db.py                Database persistence / dedup / skip streak tests (9)
-    test_dashboard.py         Dashboard data-layer tests (18)
+    test_dashboard.py         Dashboard data-layer and log-parsing tests (30)
     test_api.py               FastAPI endpoint and validation tests (10)
     test_schema.py            Input validation / sanitization tests (48)
     test_matching.py          Keyword matching / concurrency tests (8)

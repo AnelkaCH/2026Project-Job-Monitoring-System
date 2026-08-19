@@ -1,5 +1,6 @@
 import os
 import sys
+import tempfile
 from pathlib import Path
 from unittest.mock import patch
 
@@ -9,12 +10,18 @@ from dashboard import (
     DASHBOARD_CSS,
     DASHBOARD_CSS_PATH,
     apply_filters,
+    assign_cycles,
     build_dataframe,
+    classify_cycles,
+    filter_hardstops,
     flatten_rows,
+    parse_audit_log,
+    parse_operational_log,
     render_badge,
     render_metric_card,
     render_title_bar,
     resolve_db_path,
+    resolve_log_dir,
 )
 
 
@@ -193,6 +200,159 @@ def test_render_metric_card_escapes_value():
     print("PASS: metric card label and value are HTML-escaped")
 
 
+def _write_temp_log(content):
+    fd, path = tempfile.mkstemp(suffix=".log", text=True)
+    with os.fdopen(fd, "w", encoding="utf-8") as f:
+        f.write(content)
+    return path
+
+
+AUDIT_LINES = """\
+{"ats": "workday", "company": "Acme", "event": "QUERY", "timestamp": "2026-08-18T03:27:31+00:00"}
+{"ats": "workday", "company": "Acme", "event": "CLASSIFY", "match_count": 3, "ambiguous_count": 1, "new_count": 2, "timestamp": "2026-08-18T03:27:34+00:00"}
+{"company": "Locad", "event": "TIER3_HARDSTOP", "platform": "personio", "reason": "throttle_exhausted", "attempts": 5, "timestamp": "2026-08-18T03:31:36+00:00"}
+{"ats": "workday", "company": "Acme", "event": "CLASSIFY", "match_count": 1, "ambiguous_count": 0, "new_count": 0, "timestamp": "2026-08-18T05:00:00+00:00"}
+{"event": "TIER3_HARDSTOP", "company": "Globex", "ats": "lever", "reasons": ["HTTP 403 - access denied / bot detection"], "status": 403, "timestamp": "2026-08-18T05:00:10+00:00"}
+{"this line is not valid json
+"""
+
+OPERATIONAL_LINES = """\
+2026-08-18 10:30:03,346 [INFO] Checking NTT DATA (workday)...
+2026-08-18 10:30:03,346 [WARNING] Skipping NTT DATA this cycle: robots.txt disallows /services/recruiting/v1/jobs (streak: 2)
+2026-08-18 10:30:03,347 [WARNING] [NTT DATA] [SKIPPED] not allowed by robots.txt.
+2026-08-18 11:45:08,453 [INFO] [Zoox] 2 new matching posting(s):
+2026-08-18 11:50:00,124 [WARNING] Skipping Locad this cycle: Locad (personio) skipped after 5 attempt(s): rate-limited (streak: 3)
+"""
+
+
+def test_parse_audit_log_skips_malformed_lines():
+    path = _write_temp_log(AUDIT_LINES)
+    try:
+        records = parse_audit_log(path)
+        assert len(records) == 5
+        assert {r["event"] for r in records} == {"QUERY", "CLASSIFY", "TIER3_HARDSTOP"}
+        assert all(isinstance(r, dict) for r in records)
+    finally:
+        os.remove(path)
+    print("PASS: audit log parses valid JSON lines and skips the malformed one")
+
+
+def test_parse_audit_log_missing_file_returns_empty():
+    assert parse_audit_log("C:/does/not/exist/audit.log") == []
+    print("PASS: missing audit log returns an empty list")
+
+
+def test_filter_hardstops_normalizes_reason_and_platform():
+    path = _write_temp_log(AUDIT_LINES)
+    try:
+        rows = filter_hardstops(parse_audit_log(path))
+        assert len(rows) == 2
+        by_company = {r["company"]: r for r in rows}
+        assert by_company["Locad"]["reason"] == "throttle_exhausted"
+        assert by_company["Locad"]["platform"] == "personio"
+        assert by_company["Globex"]["reason"] == "HTTP 403 - access denied / bot detection"
+        assert by_company["Globex"]["platform"] == "lever"
+    finally:
+        os.remove(path)
+    print("PASS: hard-stop rows normalize string and list reasons and ats/platform keys")
+
+
+def test_filter_hardstops_empty_when_none_present():
+    path = _write_temp_log('{"event": "QUERY", "company": "Acme", "timestamp": "2026-08-18T03:27:31+00:00"}\n')
+    try:
+        assert filter_hardstops(parse_audit_log(path)) == []
+    finally:
+        os.remove(path)
+    print("PASS: no hard-stop rows when only QUERY events exist")
+
+
+def test_classify_cycles_aggregates_per_cycle():
+    path = _write_temp_log(AUDIT_LINES)
+    try:
+        cycles = classify_cycles(parse_audit_log(path))
+        assert len(cycles) == 2
+        by_start = {c["cycle_label"]: c for c in cycles.to_dict("records")}
+        assert by_start["18 Aug 03:27"]["match_count"] == 3
+        assert by_start["18 Aug 03:27"]["ambiguous_count"] == 1
+        assert by_start["18 Aug 03:27"]["new_count"] == 2
+        assert by_start["18 Aug 05:00"]["match_count"] == 1
+        assert by_start["18 Aug 05:00"]["ambiguous_count"] == 0
+        assert by_start["18 Aug 05:00"]["new_count"] == 0
+    finally:
+        os.remove(path)
+    print("PASS: CLASSIFY events are bucketed into cycles and summed")
+
+
+def test_classify_cycles_empty_returns_empty_frame():
+    path = _write_temp_log('{"event": "QUERY", "company": "Acme", "timestamp": "2026-08-18T03:27:31+00:00"}\n')
+    try:
+        df = classify_cycles(parse_audit_log(path))
+        assert df.empty
+        assert "cycle_label" in df.columns
+    finally:
+        os.remove(path)
+    print("PASS: classify_cycles returns an empty frame when no CLASSIFY events exist")
+
+
+def test_assign_cycles_gap_splits_runs():
+    records = [
+        {"timestamp": "2026-08-18T03:27:00+00:00"},
+        {"timestamp": "2026-08-18T03:28:00+00:00"},
+        {"timestamp": "2026-08-18T10:00:00+00:00"},
+        {"timestamp": "not-a-date"},
+    ]
+    tagged = assign_cycles(records, gap_seconds=600)
+    cycles = [r["cycle"] for r in tagged]
+    assert cycles[0] == 0 and cycles[1] == 0 and cycles[2] == 1
+    assert cycles[3] == 1  # unparseable timestamp keeps the current cycle
+    print("PASS: gap-based clustering splits runs and keeps bad timestamps")
+
+
+def test_parse_operational_log_extracts_skips():
+    path = _write_temp_log(OPERATIONAL_LINES)
+    try:
+        frame = parse_operational_log(path)
+        assert len(frame) == 2
+        by_company = frame.set_index("company")
+        assert by_company.loc["NTT DATA", "reason"] == "robots.txt disallows /services/recruiting/v1/jobs"
+        assert by_company.loc["NTT DATA", "streak"] == 2
+        assert by_company.loc["Locad", "reason"] == "Locad (personio) skipped after 5 attempt(s): rate-limited"
+        assert by_company.loc["Locad", "streak"] == 3
+        assert len(frame.columns.tolist()) == 6  # cycle, cycle_start, company, reason, streak, timestamp
+    finally:
+        os.remove(path)
+    print("PASS: operational log skips parse with reason, streak, and cycle")
+
+
+def test_parse_operational_log_missing_file_empty_frame():
+    frame = parse_operational_log("C:/does/not/exist/operational.log")
+    assert frame.empty
+    assert "company" in frame.columns
+    print("PASS: missing operational log returns an empty frame")
+
+
+def test_resolve_log_dir_defaults_to_repo_logs():
+    from utils.audit_log import LOG_DIR
+    with patch.dict("os.environ", {}, clear=True):
+        with patch("sys.argv", ["dashboard.py"]):
+            assert resolve_log_dir() == str(LOG_DIR)
+    print("PASS: default log dir is the repo logs directory")
+
+
+def test_resolve_log_dir_env_var_wins():
+    with patch.dict("os.environ", {"LOG_DIR": "C:/other/logs"}):
+        with patch("sys.argv", ["dashboard.py"]):
+            assert resolve_log_dir() == "C:/other/logs"
+    print("PASS: LOG_DIR env var overrides the default")
+
+
+def test_resolve_log_dir_cli_flag_wins():
+    with patch.dict("os.environ", {}, clear=True):
+        with patch("sys.argv", ["dashboard.py", "--log-dir", "D:/custom/logs"]):
+            assert resolve_log_dir() == "D:/custom/logs"
+    print("PASS: --log-dir CLI flag overrides everything")
+
+
 if __name__ == "__main__":
     test_flatten_rows_full_detail()
     test_flatten_rows_blank_title_falls_back_to_id()
@@ -212,4 +372,16 @@ if __name__ == "__main__":
     test_win95_theme_css_file_exists()
     test_render_title_bar_is_static()
     test_render_metric_card_escapes_value()
+    test_parse_audit_log_skips_malformed_lines()
+    test_parse_audit_log_missing_file_returns_empty()
+    test_filter_hardstops_normalizes_reason_and_platform()
+    test_filter_hardstops_empty_when_none_present()
+    test_classify_cycles_aggregates_per_cycle()
+    test_classify_cycles_empty_returns_empty_frame()
+    test_assign_cycles_gap_splits_runs()
+    test_parse_operational_log_extracts_skips()
+    test_parse_operational_log_missing_file_empty_frame()
+    test_resolve_log_dir_defaults_to_repo_logs()
+    test_resolve_log_dir_env_var_wins()
+    test_resolve_log_dir_cli_flag_wins()
     print("\nAll tests passed.")

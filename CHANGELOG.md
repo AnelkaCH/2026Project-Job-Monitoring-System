@@ -6,6 +6,22 @@
 - Scheduler
 - Many more things to come :D
 
+## [2026-08-19] v3.4 - Dashboard: Audit / Security Panel
+### Added
+- `dashboard.py` - The app is now three tabs instead of one page: **Postings** (the existing filterable table, unchanged), **Audit**, and **Operations**. The postings tab renders its empty/error state in-tab so the other tabs still work when the database is empty.
+- `dashboard.py` - **Audit tab**: parses `logs/audit.log` (JSON lines) with stdlib `json` via `parse_audit_log()`. `filter_hardstops()` surfaces every `TIER3_HARDSTOP` event as a table (company, platform, reason, timestamp), normalizing string vs list reasons and the `ats` / `platform` key split across the monitor and rate limiter. `classify_cycles()` aggregates `CLASSIFY` events into per-cycle match / ambiguous / new totals rendered as an `st.bar_chart`. No new dependency.
+- `dashboard.py` - **Operations tab**: parses `logs/operational.log` via `parse_operational_log()` and lists skip events (robots.txt disallow, rate-limit, bot-detection) with their consecutive-skip streak, plus totals for skip events, companies skipped, and the worst streak.
+- `dashboard.py` - Cycle inference (`assign_cycles()`): monitoring runs carry no id, so cycles are derived from timestamps; a new cycle starts when consecutive events are more than 30 minutes apart. Malformed JSON lines and unparseable timestamps are skipped rather than failing the panel.
+- `dashboard.py` - `resolve_log_dir()` and a `--log-dir` flag / `LOG_DIR` env var mirror the existing `DB_PATH` / `--db-path` pattern, defaulting to the repo `logs/` directory.
+- `tests/test_dashboard.py` - 12 new tests (30 total) covering audit-log parsing (malformed lines skipped), hard-stop reason/platform normalization, cycle bucketing and per-cycle aggregation, operational-log skip extraction, and `--log-dir` resolution precedence.
+
+### Changed
+- `README.md` - Dashboard section rewritten for the three tabs and the `--log-dir` flag; test counts updated.
+- `ARCHITECTURE.md` - Dashboard section documents the three tabs and cycle inference; test coverage count updated.
+
+### Fixed
+- (none)
+
 ## [2026-08-18] v3.3.2 - Configurable Entrypoint & Demo Mode
 ### Added
 - `job_monitor.py` - `argparse` CLI flags: `--config PATH` (default: the repo-anchored `config.json`) and `--db-path PATH` (default: `DB_PATH` env var, else `data/jobmonitor.db`). Running with no flags behaves exactly as before; the flags let anyone point the monitor at a different config file and database.
