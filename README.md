@@ -10,9 +10,11 @@ I was tracking internship and job openings across cybersecurity, cloud, and tech
 
 ## Screenshots / Demo
 
-### Logs
+### Dashboard
 
-![Logs](/documentation/operational_logs_example.png)
+![dashboard](/documentation/dashboard_example.png)
+![audit](/documentation/audit_board_example.png)
+![operations](/documentation/operations_board_example.png)
 
 ### Email Notification
 
