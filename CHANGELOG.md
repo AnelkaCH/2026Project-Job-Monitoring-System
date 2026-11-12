@@ -6,6 +6,19 @@
 - Scheduler
 - Many more things to come :D
 
+## [2026-11-13] v3.4.1 - Fix keyword endpoint, --db-path skip streaks, HTTP error audit, and detect secrets bug
+
+### Changed
+- `api/schemas.py`, `api/main.py` - `POST /config/keywords` now takes separate optional `role_keywords`, `domain_keywords`, and `exclude_keywords` lists and updates only the ones sent. The old single `keywords` field is removed.
+- `.pre-commit-config.yaml` - The `detect-secrets` hook now runs as a local hook via `python -m detect_secrets.pre_commit_hook` instead of the standalone executable pre-commit installs, which Windows Application Control policies can block. Same version (1.5.0), same baseline, same scan.
+- `requirements-dev.txt` - Added `detect-secrets==1.5.0`, which the local hook needs in the active environment.
+
+### Fixed
+- `api/main.py` - `POST /config/keywords` no longer copies the same list into `exclude_keywords`. Because exclude wins over role and domain matching, the old behavior rejected every matching title, so nothing could match after a keyword update.
+- `job_monitor.py` - `--db-path` now also applies to skip streaks (by setting `DB_PATH` for the run). Before, a demo run wrote postings to `demo.db` but read and wrote skip streaks in the default `data/jobmonitor.db`.
+- `job_monitor.py` - Plain HTTP errors from an adapter (404, 500, etc.) are now recorded as a `SKIP` with reason `http-error` and count toward the skip streak. Before, they were audited as `TIER3_HARDSTOP unexpected_error`, which inflated the Audit panel and hid repeatedly failing companies from the flagged list. Real bot-detection signals still go through `check_hardstop()` unchanged.
+- `tests/test_api.py`, `tests/test_matching.py` - Regression tests for all three fixes (146 tests total).
+
 ## [2026-08-19] v3.4 - Dashboard: Audit / Security Panel
 ### Added
 - `dashboard.py` - The app is now three tabs instead of one page: **Postings** (the existing filterable table, unchanged), **Audit**, and **Operations**. The postings tab renders its empty/error state in-tab so the other tabs still work when the database is empty.

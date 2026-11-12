@@ -1,7 +1,12 @@
 repos:
-  - repo: https://github.com/Yelp/detect-secrets
-    rev: v1.5.0
+  # Runs detect-secrets through the active Python environment instead of the
+  # standalone executable pre-commit would install, so Windows Application
+  # Control policies that block unsigned .exe files do not break the hook.
+  # Requires detect-secrets from requirements-dev.txt in the active venv.
+  - repo: local
     hooks:
       - id: detect-secrets
-        args: ['--baseline', '.secrets.baseline']
+        name: Detect secrets
+        entry: python -m detect_secrets.pre_commit_hook --baseline .secrets.baseline
+        language: system
         exclude: package.lock.json

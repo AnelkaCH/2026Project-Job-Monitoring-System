@@ -137,30 +137,64 @@ def test_get_company_not_tracked(api_config, client):
     print("PASS: /companies/{name} returns 404 for an untracked company")
 
 
-def test_update_keywords_writes_all_lists(api_config, client):
-    resp = client.post("/config/keywords", json={"keywords": ["intern", "grad"]})
+def test_update_keywords_writes_each_list_independently(api_config, client):
+    resp = client.post("/config/keywords", json={
+        "role_keywords": ["intern", "grad"],
+        "domain_keywords": ["security"],
+        "exclude_keywords": ["hr"],
+    })
     assert resp.status_code == 200
     body = resp.json()
     assert body["role_keywords"] == ["intern", "grad"]
-    assert body["domain_keywords"] == ["intern", "grad"]
-    assert body["exclude_keywords"] == ["intern", "grad"]
+    assert body["domain_keywords"] == ["security"]
+    assert body["exclude_keywords"] == ["hr"]
 
     with open(api_config, "r", encoding="utf-8") as f:
         saved = json.load(f)
     assert saved["filters"]["role_keywords"] == ["intern", "grad"]
-    assert saved["filters"]["domain_keywords"] == ["intern", "grad"]
-    assert saved["filters"]["exclude_keywords"] == ["intern", "grad"]
-    print("PASS: POST /config/keywords persists the keywords to all three lists")
+    assert saved["filters"]["domain_keywords"] == ["security"]
+    assert saved["filters"]["exclude_keywords"] == ["hr"]
+    print("PASS: POST /config/keywords persists each list to its own filter")
 
 
-def test_update_keywords_empty_list_rejected(api_config, client):
-    resp = client.post("/config/keywords", json={"keywords": []})
+def test_update_keywords_partial_update_keeps_other_lists(api_config, client):
+    resp = client.post("/config/keywords", json={"role_keywords": ["graduate"]})
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["role_keywords"] == ["graduate"]
+    assert body["domain_keywords"] == ["cyber"]
+    assert body["exclude_keywords"] == []
+    print("PASS: lists left out of the request keep their current value")
+
+
+def test_update_keywords_never_copies_into_exclude(api_config, client):
+    # Regression: the endpoint used to write the same list into all three
+    # filters, and since exclude wins, nothing could ever match afterwards.
+    from job_monitor import matches_filters
+
+    client.post("/config/keywords", json={"role_keywords": ["intern"], "domain_keywords": ["security"]})
+    with open(api_config, "r", encoding="utf-8") as f:
+        filters = json.load(f)["filters"]
+    assert filters["exclude_keywords"] == []
+    job = {"title": "Security Intern", "location": "Singapore", "posted_days_ago": 1}
+    assert matches_filters(job, filters) == "match"
+    print("PASS: updating keywords never makes every title fail the exclude check")
+
+
+def test_update_keywords_empty_body_rejected(api_config, client):
+    resp = client.post("/config/keywords", json={})
     assert resp.status_code == 422
-    print("PASS: an empty keyword list is rejected with 422")
+    print("PASS: a request with no keyword lists is rejected with 422")
+
+
+def test_update_keywords_empty_role_list_rejected(api_config, client):
+    resp = client.post("/config/keywords", json={"role_keywords": []})
+    assert resp.status_code == 422
+    print("PASS: an empty role keyword list is rejected with 422")
 
 
 def test_update_keywords_non_string_rejected(api_config, client):
-    resp = client.post("/config/keywords", json={"keywords": ["intern", 42]})
+    resp = client.post("/config/keywords", json={"role_keywords": ["intern", 42]})
     assert resp.status_code == 422
     print("PASS: non-string keyword entries are rejected with 422")
 

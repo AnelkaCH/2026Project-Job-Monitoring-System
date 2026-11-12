@@ -122,6 +122,60 @@ def test_concurrent_workers_aggregate_safely():
     print("PASS: concurrent company checks aggregate into shared state safely")
 
 
+def test_http_error_is_a_skip_not_a_hardstop(tmp_path, monkeypatch):
+    # A 404/500 from raise_for_status() is an ordinary skip: it must count
+    # toward the skip streak and must not be audited as a Tier 3 hard-stop.
+    import requests
+
+    db_path = str(tmp_path / "test.db")
+    monkeypatch.setenv("DB_PATH", db_path)
+
+    def failing_fetch(company):
+        response = requests.Response()
+        response.status_code = 404
+        raise requests.HTTPError("404 Client Error", response=response)
+
+    audit_events = []
+    with patch("job_monitor.CONNECTORS", {"greenhouse": failing_fetch}), \
+         patch("job_monitor.log_audit_event", lambda event, **f: audit_events.append(event)):
+        result = check_company({"name": "Acme", "ats": "greenhouse", "slug": "acme"}, {}, db_path)
+
+    assert result["status"] == "skipped"
+    assert result["skip_reason"].reason == "http-error"
+    assert result["skip_reason"].detail == "HTTP 404"
+    assert "TIER3_HARDSTOP" not in audit_events
+    assert "SKIP" in audit_events
+    assert repository.get_skip_streak("Acme", db_path=db_path) == 1
+    print("PASS: HTTP errors are recorded as skips, not Tier 3 hard-stops")
+
+
+def test_db_path_flag_also_routes_skip_streaks(tmp_path, monkeypatch):
+    # --db-path must cover skip streaks as well as postings, so a demo run
+    # never writes streaks into the default database.
+    import job_monitor
+
+    demo_db = str(tmp_path / "demo.db")
+    monkeypatch.delenv("DB_PATH", raising=False)
+
+    def skipped_fetch(company):
+        job_monitor.skip_tracker.record_skip(company["name"])
+        from utils.robots_check import SkipReason
+        return SkipReason("rate-limited", "test")
+
+    config = tmp_path / "config.json"
+    config.write_text(json.dumps({
+        "filters": {},
+        "companies": [{"name": "Acme", "ats": "greenhouse", "slug": "acme"}],
+    }), encoding="utf-8")
+
+    with patch("job_monitor.CONNECTORS", {"greenhouse": skipped_fetch}), \
+         patch("job_monitor.send_notification", lambda *a, **k: None):
+        job_monitor.main(["--config", str(config), "--db-path", demo_db])
+
+    assert repository.get_skip_streak("Acme", db_path=demo_db) == 1
+    print("PASS: --db-path routes skip streaks to the chosen database")
+
+
 if __name__ == "__main__":
     test_keyword_matches_respects_word_boundaries()
     test_keyword_matches_strips_trailing_spaces()

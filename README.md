@@ -91,10 +91,11 @@ curl "http://127.0.0.1:8000/companies"
 # Status for one tracked company (404 if not in config.json)
 curl "http://127.0.0.1:8000/companies/Samsung%20Electronics"
 
-# Update the filter keywords written into config.json (non-empty list of strings)
+# Update filter keywords in config.json. Send any of role_keywords,
+# domain_keywords, exclude_keywords; lists you leave out are unchanged.
 curl -X POST "http://127.0.0.1:8000/config/keywords" \
   -H "Content-Type: application/json" \
-  -d '{"keywords": ["intern", "security"]}'
+  -d '{"role_keywords": ["intern"], "domain_keywords": ["security"]}'
 ```
 
 The API resolves the database exactly like the rest of the system: `DB_PATH` env var, else the repo-relative `data/jobmonitor.db`. A tracked company's `last_checked` is the most recent `first_seen_at` across its stored postings.
@@ -144,7 +145,7 @@ Run all tests with:
 pytest tests/
 ```
 
-140 tests across eight modules covering the security-critical infrastructure, the database persistence layer, the dashboard data layer, the read API layer, and keyword matching: rate limiter (6 tests), robots.txt compliance checker (15 tests), audit logging / hard-stop detection (15 tests), database persistence / dedup / skip streaks (9 tests), dashboard data and log-parsing layers (30 tests), API endpoints and validation (10 tests), input validation / sanitization (48 tests, one skipped by design for the SAP optional-title case), and keyword matching / concurrent aggregation (8 tests). Tests use `unittest.mock` and per-test temporary databases to avoid real network or filesystem I/O and are safe to run without configuration.
+146 tests across eight modules covering the security-critical infrastructure, the database persistence layer, the dashboard data layer, the read API layer, and keyword matching: rate limiter (6 tests), robots.txt compliance checker (15 tests), audit logging / hard-stop detection (15 tests), database persistence / dedup / skip streaks (9 tests), dashboard data and log-parsing layers (30 tests), API endpoints and validation (13 tests), input validation / sanitization (48 tests, one skipped by design for the SAP optional-title case), and keyword matching, concurrent aggregation, and HTTP-error skip handling (10 tests). Tests use `unittest.mock` and per-test temporary databases to avoid real network or filesystem I/O and are safe to run without configuration.
 
 ### Optional: Pre-Commit Hook
 
@@ -239,15 +240,15 @@ JobMonitoring/
     schemas.py                Pydantic response/request models
     routes_jobs.py            GET /jobs and GET /jobs/{job_id}
     routes_companies.py       GET /companies and GET /companies/{name}
-  tests/                      Unit tests (140 total, 1 skipped by design)
+  tests/                      Unit tests (146 total, 1 skipped by design)
     test_rate_limiter.py      Rate limiter tests (6)
     test_robots_check.py      Robots.txt compliance tests (15)
     test_audit_log.py         Audit log and hard-stop tests (15)
     test_db.py                Database persistence / dedup / skip streak tests (9)
     test_dashboard.py         Dashboard data-layer and log-parsing tests (30)
-    test_api.py               FastAPI endpoint and validation tests (10)
+    test_api.py               FastAPI endpoint and validation tests (13)
     test_schema.py            Input validation / sanitization tests (48)
-    test_matching.py          Keyword matching / concurrency tests (8)
+    test_matching.py          Keyword matching / concurrency tests (10)
     fixtures/
       test_config.json        Repo-safe config fixture for load_config tests
   static/                     UI assets for the dashboard

@@ -14,7 +14,9 @@ import json
 import logging
 import os
 from datetime import datetime, timezone
- 
+
+import requests
+
 from utils.audit_log import setup_logging, log_audit_event
 from adapters.connectors import CONNECTORS
 from utils.robots_check import SkipReason
@@ -144,6 +146,17 @@ def check_company(company, filters, db_path):
 
     try:
         raw_jobs = fetch_function(company)
+    except requests.HTTPError as e:
+        # A plain HTTP error (404, 500, etc.) from raise_for_status() in an
+        # adapter. Bot-detection statuses (403, non-Workday 503) never reach
+        # here: the rate limiter's check_hardstop() catches them first and
+        # they arrive as a "bot-detection" SkipReason. So this is a normal
+        # skip, not a Tier 3 hard-stop, and it counts toward the skip streak
+        # so a company that keeps failing still gets flagged in the email.
+        status_code = e.response.status_code if e.response is not None else "unknown"
+        streak = skip_tracker.record_skip(name)
+        operational_logger.warning("Skipping %s this cycle: HTTP %s error (streak: %d)", name, status_code, streak)
+        raw_jobs = SkipReason("http-error", f"HTTP {status_code}")
     except Exception as e:
         log_audit_event("TIER3_HARDSTOP", ats=ats, company=name, reason=f"unexpected_error: {e}")
         return {"name": name, "ats": ats, "status": "error", "detail": str(e)}
@@ -203,6 +216,8 @@ def log_company_result(result, all_new_jobs, all_ambiguous_jobs, db_path):
             operational_logger.warning("[%s] [SKIPPED] not allowed by robots.txt.", name)
         elif raw.reason == "bot-detection":
             operational_logger.warning("[%s] [SKIPPED] bot-detection triggered (Tier 3 hard-stop).", name)
+        elif raw.reason == "http-error":
+            operational_logger.warning("[%s] [SKIPPED] %s from the ATS, will retry next run.", name, raw.detail)
         else:
             operational_logger.warning("[%s] [SKIPPED] rate-limited this cycle, will retry next run.", name)
         return
@@ -262,6 +277,12 @@ def main(argv=None):
     setup_logging()
     args = parse_args(argv)
     companies, filters = load_config(args.config)
+    if args.db_path:
+        # Adapters and the skip tracker resolve the database through
+        # repository.get_db_path(), which reads DB_PATH. Setting it here makes
+        # --db-path apply to skip streaks too, not just job postings, so a
+        # demo run never writes streaks into the real database.
+        os.environ["DB_PATH"] = args.db_path
     db_path = args.db_path or str(repository.get_db_path())
 
     all_new_jobs = []       # relevant new postings, across all companies
