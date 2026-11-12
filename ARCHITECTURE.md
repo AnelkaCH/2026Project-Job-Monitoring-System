@@ -82,7 +82,7 @@ The age filter uses `posted_days_ago`: if the value is `None` (could not determi
 
 **What it does:** Every adapter HTTP call goes through `RateLimiter.get()` or `RateLimiter.post()` instead of calling `requests` directly. The module enforces two things:
 
-1. **Per-company requests-per-minute cap**: Tracked per company (not per platform), since two companies on the same ATS are independent endpoints. Conservative default of 10 requests/minute via `PlatformConfig`.
+1. **Per-company requests-per-minute cap**: Tracked per company (not per platform), since two companies on the same ATS are independent endpoints. Conservative default of 15 requests/minute via `PlatformConfig`.
 
 2. **Exponential backoff with jitter on throttle signals**: On 429 or platform-specific signals (e.g., Workday's 503), the module waits before retrying, with the wait roughly doubling each attempt (2s, 4s, 8s...) capped at 60s. Jitter prevents multiple companies on the same ATS from retrying in lockstep.
 
@@ -107,7 +107,9 @@ Adapters run concurrently in `job_monitor.py` via a `ThreadPoolExecutor` (capped
 | Audit | `logs/audit.log` | JSON lines | 5 MB | 5 |
 | Operational | `logs/operational.log` | Timestamped text | 5 MB | 3 |
 
-Five audit event types are recorded: `QUERY` (before an adapter call), `SKIP` (when a company is skipped), `CLASSIFY` (filtering results per company), `TIER3_HARDSTOP` (when bot-detection signals are detected or retries exhausted), and `VALIDATION_REJECTED` (when an ATS response or normalized job fails the `utils/schema.py` gates).
+Audit event types: `QUERY` (before an adapter call), `SKIP` (when a company is skipped, including the `http-error` reason for plain 4xx/5xx failures), `robots_txt_skip` (written by an adapter when robots.txt disallows its endpoint), `CLASSIFY` (filtering results per company), `TIER3_HARDSTOP` (when bot-detection signals are detected or retries exhausted), and `VALIDATION_REJECTED` (when an ATS response or normalized job fails the `utils/schema.py` gates). Since v4.0, each run also writes `RUN_START`, `RUN_END` (status, duration, and counts), `RUN_FAILED` (unexpected crash), and `NOTIFY_FAILED` (email could not be sent), and every event carries the `run_id` of its run (`gh-<run id>-<attempt>` inside GitHub Actions, `local-<random>` otherwise).
+
+**Credential redaction (v4.0):** the logs are committed to the private repo's `state` branch by the scheduled workflow, and GitHub masks secrets only in the Actions console, not inside files. So `log_audit_event()` redacts every string field, and a `RedactingFilter` on the operational logger and the console handler redacts every formatted message, replacing the values of `EMAIL_ADDRESS`, `EMAIL_APP_PASSWORD`, and `RECIPIENT_EMAIL` with `[REDACTED]`. This covers exception text (e.g. an SMTP authentication error) as well as explicit fields. `tests/test_run_lifecycle.py` runs a full cycle where both an adapter and the email step fail with the credentials in their error text, and asserts that neither log file contains them.
 
 ### Skip Tracking
 
@@ -155,7 +157,30 @@ The HTML email contains green-bordered match cards, muted ambiguous rows, and am
 
 **What it does:** `dashboard.py` is a Streamlit app with three tabs. The **Postings** tab reads the tracked postings from the SQLite database via `repository.list_jobs()` and renders a filterable table of every matched and ambiguous posting (company, title, location, link, first-matched date; filters by company, tier, and date range). The **Audit** tab parses the JSON-lines `logs/audit.log` with stdlib `json` and renders Tier 3 hard-stop events (company, platform, reason, timestamp) plus a per-cycle bar chart of CLASSIFY counts (match / ambiguous / new). The **Operations** tab parses `logs/operational.log` and lists skip events (robots.txt, rate limits, bot-detection) with their consecutive-skip streaks.
 
-The dashboard is a pure read-side view: it never writes to the database and never fetches live data. Monitoring runs carry no explicit id, so cycles are inferred by clustering log timestamps (a new cycle starts when consecutive events are more than 30 minutes apart). The data and log paths are configurable via the `DB_PATH` / `LOG_DIR` env vars or the `--db-path` / `--log-dir` CLI flags (flags win, then env vars, then the repo-relative defaults), so forks can point it at their own data without code changes. `db/repository.py` loads `.env` itself, so the dashboard always resolves the same `DB_PATH` as the monitor.
+The dashboard is a pure read-side view: it never writes to the database and never fetches live data. Since v4.0, classification counts are grouped by each event's `run_id`; audit lines written before v4.0 have no run id, so they fall back to clustering by timestamp (a new cycle starts when consecutive events are more than 30 minutes apart). The Operations tab also shows the most recent `RUN_END` and raises an error badge when it is older than `RUN_STALE_HOURS` (default 13, one hour of slack over the 12-hour schedule), because a silently stopped schedule would otherwise look exactly like "no new jobs". The data and log paths are configurable via the `DB_PATH` / `LOG_DIR` env vars or the `--db-path` / `--log-dir` CLI flags (flags win, then env vars, then the repo-relative defaults), so forks can point it at their own data without code changes. `db/repository.py` loads `.env` itself, so the dashboard always resolves the same `DB_PATH` as the monitor.
+
+### Scheduling (v4.0)
+
+**What it does:** `.github/workflows/monitor.yml` runs `python job_monitor.py` at 00:17 and 12:17 UTC, plus on manual dispatch. It runs from a private copy of the repo: the job is guarded by `if: vars.MONITOR_ENABLED == 'true'`, a repository variable only the private copy sets, so the committed workflow never executes in the public repo.
+
+Each run:
+
+1. Restores `data/` and `logs/` from the `state` branch (checked out as a separate git worktree in `.state/`), or creates an empty orphan `state` branch on the very first run.
+2. Writes `config.json` (and, if present, the custom handler module) from Actions secrets, validating that the config is real JSON before the monitor starts.
+3. Runs the monitor with the SMTP credentials passed as environment variables.
+4. Commits the updated database and logs back to `state` with `if: always()`, so state is saved even when the monitor or the email failed, then deletes the private files from the runner.
+
+`job_monitor.main()` returns exit code 1 when the email failed (`RUN_END` status `notify_failed`), so a broken notification shows up as a failed workflow, which GitHub emails to the repo owner, while the dedup state from that run is still saved.
+
+**Why it is built this way:**
+
+| Concern | Choice | Reason |
+|---|---|---|
+| Scheduler | Workflow `schedule` cron, not APScheduler | There is no always-on machine; the runner is the process. |
+| Overlapping runs | Workflow `concurrency` group, `cancel-in-progress: false` | The rate limiter assumes one active session per company. A queued run waits; it is never cancelled, so no state commit is lost. |
+| State between runs | Commit to a `state` branch | Runners are ephemeral. `actions/cache` is evicted after 7 days unused, and losing the database would re-report every current match as new. A separate branch keeps `main` history code only. |
+| Private config | Actions secrets written at runtime | `config.json` and the custom handler never travel through git, so the code in the public and private repos stays identical. |
+| Cron minute | `:17`, not `:00` | GitHub queues top-of-the-hour schedules the longest. |
 
 ### Tier 3 Hard-Stop
 
@@ -220,7 +245,8 @@ A complete run cycle in `job_monitor.py`:
    g. Log `CLASSIFY` audit event with match/ambiguous/new counts.
    h. Persist current matches and ambiguous postings via `repository.mark_job_seen()` in the main thread.
 5. Log the summary of new matches, ambiguous jobs, and flagged companies.
-6. **`send_notification()`**: Build and send the HTML email if there is anything to report.
+6. **`send_notification()`**: Build and send the HTML email if there is anything to report. A failure is audited as `NOTIFY_FAILED` instead of crashing the run.
+7. **`RUN_END`**: Written in a `finally` block with the run status, duration, and counts, so even a crashed run is closed in the audit log. (`RUN_START` is written before step 2.)
 
 Outside the run cycle, `dashboard.py` reads the same `jobs` table via `repository.list_jobs()` and renders the records as a filterable table, so the monitor's output has both an email view and a web view of the same underlying data.
 
@@ -230,10 +256,12 @@ Outside the run cycle, `dashboard.py` reads the same `jobs` table via `repositor
 
 - **Stricter robots.txt on some ATS**: SAP SuccessFactors, SmartRecruiters, Ashby, and Workable have stricter `robots.txt` rules that currently disallow the endpoints this system uses. The adapters remain in their own modules but return `SkipReason` for any company on those platforms. If the platforms update their policies, the adapters will work without code changes.
 
-- **No scheduler wired yet**: The system is designed to run on a schedule (GitHub Actions), but the scheduling configuration is not yet documented or finalized. Currently each run must be triggered manually or via an external scheduler.
+- **Schedule timing**: GitHub Actions scheduled runs can start several minutes late under load, and the cron is fixed in the workflow file (GitHub does not read cron from variables), so changing the schedule means editing `monitor.yml`.
+
+- **Shared runner IPs**: Actions runners share IP ranges, so a platform is somewhat more likely to answer with a 403 than it would be from a home connection. The Tier 3 hard-stop handles this safely (stop and skip), and the skip tracker flags the company if it persists.
 
 - **Posting dates on upgrade**: The SQLite database starts empty on first run after the v3.3 migration (no JSON-to-SQLite import), so `first_seen_at` values begin at that first run; current matches are re-reported once as "new". The old `seen_jobs.json` / `skip_history.json` files are no longer written but are left in place.
 
-- **Test coverage**: Unit tests cover the security-critical modules plus the data layer: rate limiter (6 tests in `tests/test_rate_limiter.py`), robots.txt compliance checker (15 tests in `tests/test_robots_check.py`), audit logging / hard-stop detection (15 tests in `tests/test_audit_log.py`), database persistence / dedup / skip streaks (9 tests in `tests/test_db.py`), dashboard flattening, filtering, path resolution, and log parsing (30 tests in `tests/test_dashboard.py`), input validation / sanitization (48 tests in `tests/test_schema.py`, one skipped by design for the SAP optional-title case), API endpoints and validation (13 tests in `tests/test_api.py`), and keyword matching, concurrent aggregation, and HTTP-error skip handling (10 tests in `tests/test_matching.py`). Adapters, classification, and notification are not yet covered.
+- **Test coverage**: Unit tests cover the security-critical modules plus the data layer: rate limiter (6 tests in `tests/test_rate_limiter.py`), robots.txt compliance checker (15 tests in `tests/test_robots_check.py`), audit logging / hard-stop detection (15 tests in `tests/test_audit_log.py`), database persistence / dedup / skip streaks (9 tests in `tests/test_db.py`), dashboard flattening, filtering, path resolution, log parsing, and run health (38 tests in `tests/test_dashboard.py`), input validation / sanitization (48 tests in `tests/test_schema.py`, one skipped by design for the SAP optional-title case), API endpoints and validation (13 tests in `tests/test_api.py`), and keyword matching, concurrent aggregation, and HTTP-error skip handling (10 tests in `tests/test_matching.py`), and the run lifecycle, notify-failure handling, and credential redaction (7 tests in `tests/test_run_lifecycle.py`). Adapters, classification, and notification are not yet covered.
 
 - **Minimal dependencies**: Runtime: `requests` and `python-dotenv` for the monitor core, plus `streamlit` and `pandas` for the dashboard. Since v3.1, `pydantic` (response validation) and `bleach` (HTML sanitization) are runtime dependencies too. Persistence uses the stdlib `sqlite3` module, with no ORM. Everything else (robotparser, JSON, logging, SMTP, datetime, collections, dataclasses) is Python stdlib. Testing requires `pytest` (listed in `requirements-dev.txt`). This is intentional for security and portability but means some features (e.g., HTML parsing) require manual implementation.

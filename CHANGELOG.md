@@ -3,8 +3,28 @@
 ## [Unreleased]
 ### What To Expect
 - A working UI (dashboard MVP is out; a fuller UI is the next step)
-- Scheduler
 - Many more things to come :D
+
+## [2026-11-13] v4.0 - Scheduler
+### Added
+- `.github/workflows/monitor.yml` - Scheduled monitor run at 00:17 and 12:17 UTC plus manual dispatch. Guarded by the `MONITOR_ENABLED` repository variable so it only runs in the private deployment copy. Writes `config.json` and the optional custom handler module from Actions secrets at runtime (validating the config as JSON first) and deletes them afterwards. Restores the SQLite database and logs from a `state` branch before the run and commits them back with `if: always()`, so dedup state survives ephemeral runners and is saved even when the email fails. A `concurrency` group prevents overlapping runs without cancelling queued ones.
+- `job_monitor.py` - `RUN_START` / `RUN_END` audit events around every run, with status, duration, and match / ambiguous / flagged counts. `RUN_FAILED` on an unexpected crash (then re-raised). Every audit event in a run carries a `run_id` (`gh-<run id>-<attempt>` in Actions, `local-<random>` elsewhere).
+- `job_monitor.py` - Email failures are audited as `NOTIFY_FAILED` instead of crashing the run; `main()` returns exit code 1 so the workflow shows as failed while the state commit still happens.
+- `utils/audit_log.py` - Credential redaction: `log_audit_event()` and a `RedactingFilter` on the operational and console output replace the values of `EMAIL_ADDRESS`, `EMAIL_APP_PASSWORD`, and `RECIPIENT_EMAIL` with `[REDACTED]`, since the logs are now committed to the state branch and GitHub only masks secrets in the console.
+- `dashboard.py` - Operations tab shows the last run's status and raises an error badge when it is older than `RUN_STALE_HOURS` (default 13), so a stopped schedule is not mistaken for "no new jobs". Classification counts are grouped by `run_id`, falling back to the 30-minute gap rule for pre-v4.0 logs.
+- `tests/test_run_lifecycle.py` - 7 tests: run id bracketing, GitHub run id reuse, notify failure exit code, crash auditing, an end-to-end check that no credential reaches either log file, and redaction edge cases.
+- `tests/test_dashboard.py` - 8 tests for run-id grouping, latest run detection, and run health states.
+- `tests/conftest.py` - `isolated_logs` fixture so tests that run `main()` write to a temp folder instead of the real `logs/`.
+- `.env.example` - `RUN_STALE_HOURS`.
+
+### Changed
+- `job_monitor.py` - The run body moved into `run_cycle()`; `main()` now owns the run lifecycle. Run with no flags behaves as before.
+- `utils/audit_log.py` - `setup_logging()` idempotency now checks for its own rotating file handler instead of any handler, so handlers added by other tooling cannot stop the log files being set up.
+- `README.md` - New "Scheduled Runs (GitHub Actions)" section with secret / variable setup and how to view the state branch in the dashboard; features, tests, and project structure updated (161 tests).
+- `ARCHITECTURE.md` - New Scheduling section with design decisions; audit event list, credential redaction, dashboard run grouping, and data flow updated; "No scheduler wired yet" replaced with the real scheduling limitations; rate limiter default corrected to 15 requests/minute.
+
+### Fixed
+- (none)
 
 ## [2026-11-13] v3.4.1 - Fix keyword endpoint, --db-path skip streaks, HTTP error audit, and detect secrets bug
 

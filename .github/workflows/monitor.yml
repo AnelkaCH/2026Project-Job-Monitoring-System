@@ -1,0 +1,122 @@
+name: Job Monitor
+
+# Scheduled monitoring run (v4.0).
+#
+# This workflow is committed to the public repo for transparency, but it only
+# runs where the repository variable MONITOR_ENABLED is set to "true" (the
+# private deployment repo). Everywhere else the job is skipped, so the public
+# repo never runs it and never needs the secrets below.
+#
+# Private files never travel through git. They are stored as Actions secrets
+# and written to disk at runtime:
+#   CONFIG_JSON          full contents of config.json (required)
+#   CUSTOM_HANDLERS_PY   full contents of adapters/custom_handlers.py (optional)
+#   EMAIL_ADDRESS, EMAIL_APP_PASSWORD, RECIPIENT_EMAIL   SMTP settings
+#
+# Runner disks are thrown away after every run, so the SQLite database and the
+# logs live on a separate "state" branch: restored before the run, committed
+# back after it. The main branch history stays code only.
+
+on:
+  schedule:
+    # GitHub cron is always UTC. 00:17 and 12:17 UTC is 08:17 and 20:17 in
+    # Singapore. An off-the-hour minute avoids the queueing delays GitHub
+    # applies to jobs scheduled exactly on the hour.
+    - cron: "17 0,12 * * *"
+  workflow_dispatch:
+
+# One run at a time. A run that starts while another is still going waits
+# instead of overlapping, since the rate limiter assumes one active session
+# per company. Queued runs are never cancelled, so no state commit is lost.
+concurrency:
+  group: job-monitor
+  cancel-in-progress: false
+
+permissions:
+  contents: write   # needed to push the state branch
+
+jobs:
+  monitor:
+    if: vars.MONITOR_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install runtime dependencies
+        run: pip install -r requirements.txt
+
+      - name: Restore state from the state branch
+        id: restore
+        run: |
+          # The state branch is checked out as a separate worktree in .state/
+          # so its files never mix with the code checkout. On the very first
+          # run the branch does not exist yet, so an empty orphan branch is
+          # created instead.
+          if git ls-remote --exit-code --heads origin state > /dev/null; then
+            git fetch --depth=1 origin state:refs/remotes/origin/state
+            git worktree add -B state .state origin/state
+            mkdir -p data logs
+            if [ -d .state/data ]; then cp -r .state/data/. data/; fi
+            if [ -d .state/logs ]; then cp -r .state/logs/. logs/; fi
+            echo "Restored state from the state branch."
+          else
+            git worktree add --orphan -b state .state
+            echo "No state branch yet. Starting with an empty database."
+          fi
+
+      - name: Write private config from secrets
+        env:
+          CONFIG_JSON: ${{ secrets.CONFIG_JSON }}
+          CUSTOM_HANDLERS_PY: ${{ secrets.CUSTOM_HANDLERS_PY }}
+        run: |
+          if [ -z "$CONFIG_JSON" ]; then
+            echo "::error::The CONFIG_JSON secret is not set."
+            exit 1
+          fi
+          printf '%s\n' "$CONFIG_JSON" > config.json
+          python -c "import json; json.load(open('config.json', encoding='utf-8'))" \
+            || { echo "::error::The CONFIG_JSON secret is not valid JSON."; exit 1; }
+          if [ -n "$CUSTOM_HANDLERS_PY" ]; then
+            printf '%s\n' "$CUSTOM_HANDLERS_PY" > adapters/custom_handlers.py
+          fi
+
+      - name: Run the monitor
+        env:
+          EMAIL_ADDRESS: ${{ secrets.EMAIL_ADDRESS }}
+          EMAIL_APP_PASSWORD: ${{ secrets.EMAIL_APP_PASSWORD }}
+          RECIPIENT_EMAIL: ${{ secrets.RECIPIENT_EMAIL }}
+        run: python job_monitor.py
+
+      - name: Save state to the state branch
+        # always() so the dedup database and logs are saved even when the
+        # monitor or the email step failed. Without this, a failed email
+        # would discard the run's dedup updates and the next run would
+        # report the same postings as new again.
+        if: always() && steps.restore.outcome == 'success'
+        run: |
+          mkdir -p .state/data .state/logs
+          if [ -f data/jobmonitor.db ]; then cp data/jobmonitor.db .state/data/; fi
+          if [ -d logs ]; then cp -r logs/. .state/logs/; fi
+          cd .state
+          git config user.name "github-actions[bot]"
+          git config user.email "41898283+github-actions[bot]@users.noreply.github.com"
+          git add -A -f data logs
+          if git diff --cached --quiet; then
+            echo "No state changes to save."
+            exit 0
+          fi
+          git commit -m "state: run ${{ github.run_id }}"
+          git push origin state
+
+      - name: Remove private files from the runner
+        if: always()
+        run: rm -f config.json adapters/custom_handlers.py

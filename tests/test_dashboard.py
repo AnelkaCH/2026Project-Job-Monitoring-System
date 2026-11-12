@@ -15,6 +15,7 @@ from dashboard import (
     classify_cycles,
     filter_hardstops,
     flatten_rows,
+    latest_run,
     parse_audit_log,
     parse_operational_log,
     render_badge,
@@ -22,7 +23,10 @@ from dashboard import (
     render_title_bar,
     resolve_db_path,
     resolve_log_dir,
+    resolve_run_stale_hours,
+    run_health,
 )
+import pandas as pd
 
 
 def _row(job_id, tier="match", title="Security Engineer", first_seen="2026-08-01T00:00:00+00:00", **overrides):
@@ -351,6 +355,89 @@ def test_resolve_log_dir_cli_flag_wins():
         with patch("sys.argv", ["dashboard.py", "--log-dir", "D:/custom/logs"]):
             assert resolve_log_dir() == "D:/custom/logs"
     print("PASS: --log-dir CLI flag overrides everything")
+
+
+def test_classify_cycles_groups_by_run_id():
+    # Two runs whose events are only 5 minutes apart: the old 30-minute gap
+    # rule would merge them, but run ids keep them separate.
+    lines = (
+        '{"event": "CLASSIFY", "run_id": "gh-1-1", "match_count": 2, "ambiguous_count": 0, "new_count": 1, "timestamp": "2026-11-13T00:17:00+00:00"}\n'
+        '{"event": "CLASSIFY", "run_id": "gh-1-1", "match_count": 1, "ambiguous_count": 1, "new_count": 0, "timestamp": "2026-11-13T00:18:00+00:00"}\n'
+        '{"event": "CLASSIFY", "run_id": "gh-2-1", "match_count": 4, "ambiguous_count": 0, "new_count": 4, "timestamp": "2026-11-13T00:23:00+00:00"}\n'
+    )
+    path = _write_temp_log(lines)
+    try:
+        cycles = classify_cycles(parse_audit_log(path))
+        assert len(cycles) == 2
+        assert list(cycles["match_count"]) == [3, 4]
+        assert list(cycles["cycle"]) == [0, 1]
+    finally:
+        os.remove(path)
+    print("PASS: CLASSIFY events are grouped by run id when present")
+
+
+RUN_LINES = (
+    '{"event": "RUN_END", "run_id": "gh-1-1", "status": "ok", "duration_seconds": 40.2, "new_count": 1, "timestamp": "2026-11-13T00:18:00+00:00"}\n'
+    '{"event": "RUN_END", "run_id": "gh-2-1", "status": "notify_failed", "duration_seconds": 38.0, "new_count": 0, "timestamp": "2026-11-13T12:18:00+00:00"}\n'
+)
+
+
+def test_latest_run_picks_most_recent_run_end():
+    path = _write_temp_log(RUN_LINES)
+    try:
+        run = latest_run(parse_audit_log(path))
+        assert run["run_id"] == "gh-2-1"
+        assert run["status"] == "notify_failed"
+    finally:
+        os.remove(path)
+    print("PASS: latest_run returns the most recent RUN_END")
+
+
+def test_latest_run_none_without_run_events():
+    path = _write_temp_log(AUDIT_LINES)
+    try:
+        assert latest_run(parse_audit_log(path)) is None
+    finally:
+        os.remove(path)
+    print("PASS: latest_run is None for logs written before v4.0")
+
+
+def _run(status="ok", finished="2026-11-13T12:18:00+00:00"):
+    return {"run_id": "x", "status": status, "finished_at": pd.Timestamp(finished)}
+
+
+def test_run_health_ok_when_recent():
+    kind, message = run_health(_run(), pd.Timestamp("2026-11-13T14:00:00+00:00"), 13)
+    assert kind == "info"
+    assert "'ok'" in message
+    print("PASS: a recent clean run is reported as healthy")
+
+
+def test_run_health_error_when_stale():
+    kind, message = run_health(_run(), pd.Timestamp("2026-11-14T08:00:00+00:00"), 13)
+    assert kind == "error"
+    assert "may have stopped" in message
+    print("PASS: a run older than the limit is reported as an error")
+
+
+def test_run_health_warn_when_last_run_failed():
+    kind, _ = run_health(_run(status="notify_failed"), pd.Timestamp("2026-11-13T14:00:00+00:00"), 13)
+    assert kind == "warn"
+    print("PASS: a recent run that did not end cleanly is a warning")
+
+
+def test_run_health_error_when_no_run():
+    kind, _ = run_health(None, pd.Timestamp("2026-11-13T14:00:00+00:00"), 13)
+    assert kind == "error"
+    print("PASS: no recorded run is reported as an error")
+
+
+def test_resolve_run_stale_hours_env_and_fallback():
+    with patch.dict("os.environ", {"RUN_STALE_HOURS": "25"}):
+        assert resolve_run_stale_hours() == 25.0
+    with patch.dict("os.environ", {"RUN_STALE_HOURS": "not-a-number"}):
+        assert resolve_run_stale_hours() == 13.0
+    print("PASS: RUN_STALE_HOURS overrides the default, bad values fall back")
 
 
 if __name__ == "__main__":

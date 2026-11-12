@@ -7,17 +7,24 @@
 # Usage:
 #     python job_monitor.py
 #     python job_monitor.py --config demo_config.json --db-path demo.db
+#
+# Scheduling (v4.0): .github/workflows/monitor.yml runs this script every
+# 12 hours on GitHub Actions. The exit code is 0 for a clean run and 1 when
+# the email failed, so a broken notification shows up as a failed workflow.
  
 import argparse
 import concurrent.futures
 import json
 import logging
 import os
+import sys
+import time
+import uuid
 from datetime import datetime, timezone
 
 import requests
 
-from utils.audit_log import setup_logging, log_audit_event
+from utils.audit_log import setup_logging, log_audit_event, set_run_id
 from adapters.connectors import CONNECTORS
 from utils.robots_check import SkipReason
 from utils.matching import keyword_matches, has_date_range_signal
@@ -273,18 +280,11 @@ def log_company_result(result, all_new_jobs, all_ambiguous_jobs, db_path):
             db_path=db_path,
         )
 
-def main(argv=None):
-    setup_logging()
-    args = parse_args(argv)
-    companies, filters = load_config(args.config)
-    if args.db_path:
-        # Adapters and the skip tracker resolve the database through
-        # repository.get_db_path(), which reads DB_PATH. Setting it here makes
-        # --db-path apply to skip streaks too, not just job postings, so a
-        # demo run never writes streaks into the real database.
-        os.environ["DB_PATH"] = args.db_path
-    db_path = args.db_path or str(repository.get_db_path())
-
+def run_cycle(companies, filters, db_path):
+    # One full monitoring cycle: fetch, classify, persist, notify. Returns a
+    # summary dict for the RUN_END audit event. A failed email does not raise:
+    # it is audited as NOTIFY_FAILED and reported through the summary, so the
+    # scheduled workflow still saves this run's dedup state afterwards.
     all_new_jobs = []       # relevant new postings, across all companies
     all_ambiguous_jobs = [] # postings that passed keywords but location/date is unclear
 
@@ -334,8 +334,73 @@ def main(argv=None):
         for company_name, streak in sorted(flagged_companies.items(), key=lambda x: -x[1]):
             operational_logger.info("  - %s: skipped %d cycles in a row", company_name, streak)
  
-    send_notification(all_new_jobs, all_ambiguous_jobs, flagged_companies)
- 
- 
+    notify_ok = True
+    try:
+        send_notification(all_new_jobs, all_ambiguous_jobs, flagged_companies)
+    except Exception as e:
+        notify_ok = False
+        log_audit_event("NOTIFY_FAILED", error_type=type(e).__name__, error=str(e)[:500])
+        operational_logger.error("[NOTIFY] Email notification failed: %s", e)
+
+    return {
+        "notify_ok": notify_ok,
+        "new_count": len(all_new_jobs),
+        "ambiguous_count": len(all_ambiguous_jobs),
+        "flagged_count": len(flagged_companies),
+        "companies_checked": len(companies),
+    }
+
+
+def new_run_id():
+    # Inside GitHub Actions, reuse the workflow run id so an audit event can
+    # be traced straight back to its Actions run. Locally, a random short id.
+    github_run_id = os.environ.get("GITHUB_RUN_ID")
+    if github_run_id:
+        return f"gh-{github_run_id}-{os.environ.get('GITHUB_RUN_ATTEMPT', '1')}"
+    return f"local-{uuid.uuid4().hex[:12]}"
+
+
+def main(argv=None):
+    # Returns a process exit code: 0 for a clean run, 1 when the email
+    # failed. An unexpected crash is audited as RUN_FAILED and re-raised.
+    # RUN_START and RUN_END bracket every run, so the dashboard can show when
+    # the last run finished and warn when the schedule has gone quiet.
+    setup_logging()
+    args = parse_args(argv)
+    run_id = new_run_id()
+    set_run_id(run_id)
+    started = time.monotonic()
+    log_audit_event("RUN_START", trigger=os.environ.get("GITHUB_EVENT_NAME", "manual"))
+
+    status = "failed"
+    summary = {}
+    try:
+        companies, filters = load_config(args.config)
+        if args.db_path:
+            # Adapters and the skip tracker resolve the database through
+            # repository.get_db_path(), which reads DB_PATH. Setting it here
+            # makes --db-path apply to skip streaks too, not just job
+            # postings, so a demo run never writes streaks into the real
+            # database.
+            os.environ["DB_PATH"] = args.db_path
+        db_path = args.db_path or str(repository.get_db_path())
+
+        summary = run_cycle(companies, filters, db_path)
+        status = "ok" if summary["notify_ok"] else "notify_failed"
+    except Exception as e:
+        log_audit_event("RUN_FAILED", error_type=type(e).__name__, error=str(e)[:500])
+        raise
+    finally:
+        log_audit_event(
+            "RUN_END",
+            status=status,
+            duration_seconds=round(time.monotonic() - started, 1),
+            **{key: value for key, value in summary.items() if key != "notify_ok"},
+        )
+        set_run_id(None)
+
+    return 0 if status == "ok" else 1
+
+
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

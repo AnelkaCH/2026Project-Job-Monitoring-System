@@ -1,11 +1,12 @@
-# Streamlit dashboard for the job monitoring system (v3.4).
+# Streamlit dashboard for the job monitoring system (v4.0).
 #
 # Three tabs:
 #   Postings         - the filterable matched / ambiguous table from the
 #                      SQLite database written by job_monitor.py
 #   Audit / Security - Tier 3 hard-stop events and per-cycle classification
 #                      counts, parsed from logs/audit.log (JSON lines)
-#   Operations       - skip events (robots.txt, rate limits, bot-detection)
+#   Operations       - last-run health (warns when the schedule goes quiet)
+#                      and skip events (robots.txt, rate limits, bot-detection)
 #                      parsed from logs/operational.log
 #
 # The database and log paths are configurable so the tool stays reusable for
@@ -227,20 +228,88 @@ def classify_cycles(records, gap_seconds=AUDIT_CYCLE_GAP_SECONDS):
             "ambiguous_count": int(record.get("ambiguous_count", 0) or 0),
             "new_count": int(record.get("new_count", 0) or 0),
             "timestamp": record.get("timestamp", ""),
+            "run_id": record.get("run_id") or "",
         })
     if not classify_rows:
         return pd.DataFrame(columns=columns)
     tagged = assign_cycles(classify_rows, gap_seconds)
     df = pd.DataFrame(tagged)
-    grouped = df.groupby("cycle", as_index=False).agg(
+    # Since v4.0 every event carries the run_id of its monitoring run, which
+    # is exact. Events written before v4.0 have none, so they keep the
+    # timestamp-gap inference as a fallback.
+    df["run_key"] = [
+        f"run:{run_id}" if run_id else f"gap:{cycle}"
+        for run_id, cycle in zip(df["run_id"], df["cycle"])
+    ]
+    grouped = df.groupby("run_key", as_index=False).agg(
         cycle_start=("cycle_start", "min"),
         match_count=("match_count", "sum"),
         ambiguous_count=("ambiguous_count", "sum"),
         new_count=("new_count", "sum"),
     )
     grouped = grouped.sort_values("cycle_start").reset_index(drop=True)
+    grouped["cycle"] = range(len(grouped))
+    grouped = grouped.drop(columns=["run_key"])
     grouped["cycle_label"] = grouped["cycle_start"].dt.strftime("%d %b %H:%M")
     return grouped
+
+
+# The scheduled workflow runs every 12 hours, so a last run older than this
+# means the schedule has stopped (disabled workflow, failing job, expired
+# secret). Silence would otherwise read as "no new jobs", which is the same
+# trap the flagged-companies email exists to prevent.
+DEFAULT_RUN_STALE_HOURS = 13
+
+
+def resolve_run_stale_hours():
+    # RUN_STALE_HOURS env var overrides the default; a bad value falls back
+    # to the default rather than breaking the panel.
+    try:
+        return float(os.environ.get("RUN_STALE_HOURS", DEFAULT_RUN_STALE_HOURS))
+    except ValueError:
+        return float(DEFAULT_RUN_STALE_HOURS)
+
+
+def latest_run(records):
+    # The most recent RUN_END event as a flat dict, or None when the audit
+    # log holds no completed run yet (for example, logs written before v4.0).
+    latest = None
+    latest_ts = None
+    for record in records:
+        if record.get("event") != "RUN_END":
+            continue
+        ts = _parse_timestamp(record.get("timestamp", ""))
+        if pd.isna(ts):
+            continue
+        if latest_ts is None or ts > latest_ts:
+            latest, latest_ts = record, ts
+    if latest is None:
+        return None
+    return {
+        "run_id": latest.get("run_id", ""),
+        "status": latest.get("status", "unknown"),
+        "finished_at": latest_ts,
+        "duration_seconds": latest.get("duration_seconds"),
+        "new_count": latest.get("new_count"),
+    }
+
+
+def run_health(run, now, stale_hours):
+    # Returns (kind, message) for render_badge: "error" when no run is on
+    # record or the last one is stale, "warn" when the last run did not end
+    # cleanly, "info" when everything looks healthy.
+    if run is None:
+        return "error", "No completed monitoring run found in the audit log."
+    age_hours = (now - run["finished_at"]).total_seconds() / 3600
+    when = run["finished_at"].strftime("%d %b %Y %H:%M UTC")
+    if age_hours > stale_hours:
+        return "error", (
+            f"Last run finished {age_hours:.1f} hours ago ({when}), longer than the "
+            f"{stale_hours:g} hour limit. The schedule may have stopped."
+        )
+    if run["status"] != "ok":
+        return "warn", f"Last run ({when}) ended with status '{run['status']}'."
+    return "info", f"Last run finished {age_hours:.1f} hours ago ({when}) with status 'ok'."
 
 
 def parse_operational_log(path, gap_seconds=AUDIT_CYCLE_GAP_SECONDS):
@@ -407,7 +476,7 @@ def render_postings_tab(path):
             )
             with st.popover("About", icon=":material/info:"):
                 st.markdown(
-                    "**Job Monitor Dashboard** v3.4\n\n"
+                    "**Job Monitor Dashboard** v4.0\n\n"
                     "Scrapes and classifies job postings across ATS platforms, "
                     "filters by keyword and location, deduplicates results, and "
                     "sends email alerts for flagged companies.\n\n"
@@ -463,7 +532,7 @@ def render_audit_tab(log_dir):
         st.bar_chart(chart)
         st.caption(
             "Classified postings per monitoring cycle (match / ambiguous / new). "
-            "A new cycle starts when events are more than 30 minutes apart."
+            "Events are grouped by run id; logs from before v4.0 fall back to a new cycle whenever events are more than 30 minutes apart."
         )
         with st.expander("Classification details per cycle"):
             st.dataframe(cycles, width="stretch", hide_index=True)
@@ -472,8 +541,14 @@ def render_audit_tab(log_dir):
 
 
 def render_operations_tab(log_dir):
-    # Operations panel: skip events (robots.txt, rate limits, bot-detection)
-    # parsed from the operational log, with the inferred cycle and streak.
+    # Operations panel: last-run health from the audit log (v4.0), then skip
+    # events (robots.txt, rate limits, bot-detection) parsed from the
+    # operational log, with the inferred cycle and streak.
+    st.subheader("Last monitoring run")
+    run = latest_run(parse_audit_log(os.path.join(log_dir, "audit.log")))
+    kind, message = run_health(run, pd.Timestamp.now(tz="UTC"), resolve_run_stale_hours())
+    st.markdown(render_badge(kind, message), unsafe_allow_html=True)
+
     op_path = os.path.join(log_dir, "operational.log")
     if not os.path.exists(op_path):
         st.markdown(

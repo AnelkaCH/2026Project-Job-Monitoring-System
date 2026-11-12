@@ -37,6 +37,9 @@ I was tracking internship and job openings across cybersecurity, cloud, and tech
 - **Audit logging**: dual-stream structured logging (JSON audit events + timestamped operational output) with file rotation
 - **Skip tracking**: persistent consecutive-skip counter per company; streaks of 3+ trigger a flag in the email
 - **Detect-secrets pre-commit hook**: scans staged changes for credentials and high-entropy strings before commits go through
+- **Scheduled runs**: a GitHub Actions workflow runs the monitor every 12 hours, keeps the database and logs on a separate `state` branch, and never writes private config or credentials into git
+- **Run health monitoring**: every run is bracketed by `RUN_START` / `RUN_END` audit events with a run id; the dashboard warns when the last run is older than 13 hours, so a stopped schedule is never mistaken for "no new jobs"
+- **Credential redaction**: every audit and operational log line is scrubbed of SMTP credential values before it is written, since the logs are committed to the state branch
 - **CI pipeline**: GitHub Actions workflow runs the full test suite on every push and PR to `main`; live status badge in this README
 
 ## Tech Stack
@@ -45,7 +48,7 @@ I was tracking internship and job openings across cybersecurity, cloud, and tech
 
 ## How It Works
 
-The system runs on a scheduled GitHub Actions job (not yet available). Each cycle, it checks configured companies concurrently, dispatches to the appropriate ATS adapter, checks robots.txt compliance, and fetches job listings through the rate limiter. Every ATS response is validated against a per-platform schema and sanitized (HTML tags stripped with `bleach`, links checked to be `https` on the expected domain) before normalization, with anything rejected logged as a `VALIDATION_REJECTED` audit event. Results are classified by role and domain keyword AND logic plus location and age filters, deduplicated against previously seen postings, and new matches trigger an HTML email notification. Companies that fail repeatedly (rate-limited, bot-detected, or robots.txt-disallowed) are flagged for manual review after three consecutive skips.
+The system runs on a scheduled GitHub Actions job every 12 hours (see [Scheduled Runs](#scheduled-runs-github-actions)). Each cycle, it checks configured companies concurrently, dispatches to the appropriate ATS adapter, checks robots.txt compliance, and fetches job listings through the rate limiter. Every ATS response is validated against a per-platform schema and sanitized (HTML tags stripped with `bleach`, links checked to be `https` on the expected domain) before normalization, with anything rejected logged as a `VALIDATION_REJECTED` audit event. Results are classified by role and domain keyword AND logic plus location and age filters, deduplicated against previously seen postings, and new matches trigger an HTML email notification. Companies that fail repeatedly (rate-limited, bot-detected, or robots.txt-disallowed) are flagged for manual review after three consecutive skips.
 
 ## Dashboard
 
@@ -53,7 +56,7 @@ A Streamlit app (`dashboard.py`) gives the match history a usable face across th
 
 - **Postings** - the filterable table of every matched and ambiguous posting, showing company, title, location, and the date each posting was first matched. Filter by company, tier (match / ambiguous), or date range.
 - **Audit / Security** - Tier 3 hard-stop events (company, platform, reason, timestamp) and a per-cycle bar chart of classified postings (match / ambiguous / new), parsed from `logs/audit.log`.
-- **Operations** - skip events (robots.txt, rate limits, bot-detection) with their consecutive-skip streaks, parsed from `logs/operational.log`.
+- **Operations** - last-run health (status of the most recent run, with an error badge when it is older than `RUN_STALE_HOURS`, default 13) plus skip events (robots.txt, rate limits, bot-detection) with their consecutive-skip streaks, parsed from `logs/operational.log`.
 
 ```bash
 streamlit run dashboard.py
@@ -145,7 +148,7 @@ Run all tests with:
 pytest tests/
 ```
 
-146 tests across eight modules covering the security-critical infrastructure, the database persistence layer, the dashboard data layer, the read API layer, and keyword matching: rate limiter (6 tests), robots.txt compliance checker (15 tests), audit logging / hard-stop detection (15 tests), database persistence / dedup / skip streaks (9 tests), dashboard data and log-parsing layers (30 tests), API endpoints and validation (13 tests), input validation / sanitization (48 tests, one skipped by design for the SAP optional-title case), and keyword matching, concurrent aggregation, and HTTP-error skip handling (10 tests). Tests use `unittest.mock` and per-test temporary databases to avoid real network or filesystem I/O and are safe to run without configuration.
+161 tests across nine modules covering the security-critical infrastructure, the database persistence layer, the dashboard data layer, the read API layer, keyword matching, and the scheduled-run lifecycle: rate limiter (6 tests), robots.txt compliance checker (15 tests), audit logging / hard-stop detection (15 tests), database persistence / dedup / skip streaks (9 tests), dashboard data, log-parsing, and run-health layers (38 tests), API endpoints and validation (13 tests), input validation / sanitization (48 tests, one skipped by design for the SAP optional-title case), keyword matching, concurrent aggregation, and HTTP-error skip handling (10 tests), and run lifecycle / notify failure / credential redaction (7 tests). Tests use `unittest.mock` and per-test temporary databases to avoid real network or filesystem I/O and are safe to run without configuration.
 
 ### Optional: Pre-Commit Hook
 
@@ -198,6 +201,45 @@ DB_PATH=demo.db streamlit run dashboard.py
 
 `demo_config.json` is committed; `demo.db` is runtime output and gitignored.
 
+## Scheduled Runs (GitHub Actions)
+
+`.github/workflows/monitor.yml` runs the monitor at 00:17 and 12:17 UTC (08:17 and 20:17 Singapore time) and can also be started by hand from the Actions tab. It is designed to run from a **private copy** of this repo, because the private config and the run history should not be public.
+
+How it stays safe and stateless:
+
+- **Off by default.** The job only runs when the repository variable `MONITOR_ENABLED` is `true`. The public repo never sets it, so the workflow is visible here but never executes.
+- **Private files come from secrets, never from git.** `config.json` and any custom handler module are stored as Actions secrets and written to disk only for the duration of the run, then deleted.
+- **State lives on a `state` branch.** Runners are thrown away after each run, so the SQLite database and the logs are restored from the `state` branch before the run and committed back after it (even if the run or the email failed, so dedup state is never lost). `main` stays code only.
+- **No overlapping runs.** A `concurrency` group queues a second run instead of running two at once.
+- **No credentials in committed logs.** GitHub masks secrets in the Actions console but not inside files, so `utils/audit_log.py` redacts credential values from every log line before it is written.
+
+### Setup (in your private copy)
+
+1. Settings, Secrets and variables, Actions, **Secrets** tab. Add:
+
+   | Secret | Value |
+   |---|---|
+   | `CONFIG_JSON` | Full contents of your `config.json` (required) |
+   | `CUSTOM_HANDLERS_PY` | Full contents of `adapters/custom_handlers.py` (optional) |
+   | `EMAIL_ADDRESS` | Gmail address that sends the notification |
+   | `EMAIL_APP_PASSWORD` | Gmail App Password |
+   | `RECIPIENT_EMAIL` | Where the notification goes |
+
+2. Same page, **Variables** tab. Add `MONITOR_ENABLED` with the value `true`.
+3. Actions tab, **Job Monitor**, **Run workflow** for a first manual run. It creates the `state` branch.
+
+### Viewing the scheduled data locally
+
+Check out the `state` branch into a separate folder (here `private` is the git remote of your private copy), then point the dashboard at it:
+
+```bash
+git fetch private state
+git worktree add ../jobmonitor-state private/state
+streamlit run dashboard.py -- --db-path ../jobmonitor-state/data/jobmonitor.db --log-dir ../jobmonitor-state/logs
+```
+
+Later, `git -C ../jobmonitor-state pull private state` brings in newer runs. Never push the `state` branch to the public repo.
+
 ## Project Structure
 
 ```
@@ -240,15 +282,17 @@ JobMonitoring/
     schemas.py                Pydantic response/request models
     routes_jobs.py            GET /jobs and GET /jobs/{job_id}
     routes_companies.py       GET /companies and GET /companies/{name}
-  tests/                      Unit tests (146 total, 1 skipped by design)
+  tests/                      Unit tests (161 total, 1 skipped by design)
     test_rate_limiter.py      Rate limiter tests (6)
     test_robots_check.py      Robots.txt compliance tests (15)
+    conftest.py               Shared fixture that isolates log files per test
     test_audit_log.py         Audit log and hard-stop tests (15)
     test_db.py                Database persistence / dedup / skip streak tests (9)
-    test_dashboard.py         Dashboard data-layer and log-parsing tests (30)
+    test_dashboard.py         Dashboard data-layer, log-parsing, and run-health tests (38)
     test_api.py               FastAPI endpoint and validation tests (13)
     test_schema.py            Input validation / sanitization tests (48)
     test_matching.py          Keyword matching / concurrency tests (10)
+    test_run_lifecycle.py     Run lifecycle, notify failure, and credential redaction tests (7)
     fixtures/
       test_config.json        Repo-safe config fixture for load_config tests
   static/                     UI assets for the dashboard
@@ -260,6 +304,7 @@ JobMonitoring/
   .github/
     workflows/
       tests.yml               CI workflow: runs pytest on push and PR to main
+      monitor.yml             Scheduled monitor run every 12 hours (private copy only)
 ```
 
 ## Known Issues

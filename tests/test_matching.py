@@ -149,13 +149,12 @@ def test_http_error_is_a_skip_not_a_hardstop(tmp_path, monkeypatch):
     print("PASS: HTTP errors are recorded as skips, not Tier 3 hard-stops")
 
 
-def test_db_path_flag_also_routes_skip_streaks(tmp_path, monkeypatch):
+def test_db_path_flag_also_routes_skip_streaks(isolated_logs, tmp_path):
     # --db-path must cover skip streaks as well as postings, so a demo run
     # never writes streaks into the default database.
     import job_monitor
 
     demo_db = str(tmp_path / "demo.db")
-    monkeypatch.delenv("DB_PATH", raising=False)
 
     def skipped_fetch(company):
         job_monitor.skip_tracker.record_skip(company["name"])
@@ -173,6 +172,7 @@ def test_db_path_flag_also_routes_skip_streaks(tmp_path, monkeypatch):
         job_monitor.main(["--config", str(config), "--db-path", demo_db])
 
     assert repository.get_skip_streak("Acme", db_path=demo_db) == 1
+    assert repository.get_skip_streak("Acme", db_path=str(isolated_logs / "default.db")) == 0
     print("PASS: --db-path routes skip streaks to the chosen database")
 
 
