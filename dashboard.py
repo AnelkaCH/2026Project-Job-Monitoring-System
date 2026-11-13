@@ -21,6 +21,10 @@
 #     DB_PATH=/path/to/jobmonitor.db streamlit run dashboard.py
 #     streamlit run dashboard.py -- --db-path /path/to/jobmonitor.db
 #     streamlit run dashboard.py -- --log-dir /path/to/logs
+#
+# Hosted mode (v4.1): when STATE_REPO and STATE_TOKEN are set (for example as
+# Streamlit Community Cloud secrets), the database and logs are downloaded
+# from the private repo's "state" branch instead. See utils/state_fetch.py.
 
 import argparse
 import html
@@ -31,6 +35,7 @@ import sqlite3
 
 from db import repository
 from utils.audit_log import LOG_DIR
+from utils.state_fetch import StateFetchError, fetch_state, state_source_from_env
 
 try:
     import pandas as pd
@@ -476,7 +481,7 @@ def render_postings_tab(path):
             )
             with st.popover("About", icon=":material/info:"):
                 st.markdown(
-                    "**Job Monitor Dashboard** v4.0\n\n"
+                    "**Job Monitor Dashboard** v4.1\n\n"
                     "Scrapes and classifies job postings across ATS platforms, "
                     "filters by keyword and location, deduplicates results, and "
                     "sends email alerts for flagged companies.\n\n"
@@ -591,6 +596,62 @@ def render_operations_tab(log_dir):
     )
 
 
+# Hosted mode (v4.1). The scheduled monitor keeps its data on the private
+# repo's "state" branch, so when STATE_REPO is configured the dashboard
+# downloads that data instead of reading local files. Downloads are cached for
+# this many seconds, so page reloads do not call GitHub every time.
+REMOTE_REFRESH_SECONDS = 300
+
+
+def _fetch_remote_state(repo, branch):
+    # repo and branch are only the cache key; the token is read inside so it
+    # never becomes part of Streamlit's cache key. Errors are not cached, so a
+    # failed fetch is retried on the next page load.
+    fetched = fetch_state(state_source_from_env())
+    return fetched.db_path, fetched.log_dir, fetched.fetched_at.isoformat(), list(fetched.missing)
+
+
+if _STREAMLIT_AVAILABLE:
+    _fetch_remote_state = st.cache_data(
+        ttl=REMOTE_REFRESH_SECONDS,
+        show_spinner="Fetching the latest data from the state branch...",
+    )(_fetch_remote_state)
+
+
+def resolve_data_source():
+    # Returns (db_path, log_dir), or None after rendering an error badge.
+    # Local mode (no STATE_REPO): the existing flag / env var / default paths.
+    # Hosted mode: fresh copies of the state branch files in a cache folder.
+    try:
+        source = state_source_from_env()
+    except StateFetchError as exc:
+        st.markdown(render_badge("error", str(exc)), unsafe_allow_html=True)
+        return None
+
+    if source is None:
+        return resolve_db_path(), resolve_log_dir()
+
+    if st.button("Refresh data", icon=":material/refresh:"):
+        _fetch_remote_state.clear()
+    try:
+        db_path, log_dir, fetched_at, missing = _fetch_remote_state(source.repo, source.branch)
+    except StateFetchError as exc:
+        st.markdown(render_badge("error", str(exc)), unsafe_allow_html=True)
+        return None
+
+    fetched_label = pd.Timestamp(fetched_at).strftime("%d %b %Y %H:%M UTC")
+    st.caption(
+        f"Data from the '{source.branch}' branch, fetched {fetched_label}. "
+        f"Refreshes automatically every {REMOTE_REFRESH_SECONDS // 60} minutes."
+    )
+    if missing:
+        st.markdown(
+            render_badge("warn", "Not on the state branch yet: " + ", ".join(missing)),
+            unsafe_allow_html=True,
+        )
+    return db_path, log_dir
+
+
 def main():
     if not _STREAMLIT_AVAILABLE:
         print("This dashboard needs Streamlit. Install it with: pip install streamlit pandas")
@@ -601,16 +662,21 @@ def main():
     st.markdown(DASHBOARD_CSS, unsafe_allow_html=True)
     st.markdown(render_title_bar(), unsafe_allow_html=True)
 
+    paths = resolve_data_source()
+    if paths is None:
+        return
+    db_path, log_dir = paths
+
     tab_postings, tab_audit, tab_ops = st.tabs(["Postings", "Audit", "Operations"])
 
     with tab_postings:
-        render_postings_tab(resolve_db_path())
+        render_postings_tab(db_path)
 
     with tab_audit:
-        render_audit_tab(resolve_log_dir())
+        render_audit_tab(log_dir)
 
     with tab_ops:
-        render_operations_tab(resolve_log_dir())
+        render_operations_tab(log_dir)
 
 
 if __name__ == "__main__":

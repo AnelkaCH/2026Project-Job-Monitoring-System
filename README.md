@@ -38,6 +38,7 @@ I was tracking internship and job openings across cybersecurity, cloud, and tech
 - **Skip tracking**: persistent consecutive-skip counter per company; streaks of 3+ trigger a flag in the email
 - **Detect-secrets pre-commit hook**: scans staged changes for credentials and high-entropy strings before commits go through
 - **Scheduled runs**: a GitHub Actions workflow runs the monitor every 12 hours, keeps the database and logs on a separate `state` branch, and never writes private config or credentials into git
+- **Hosted dashboard**: optional Streamlit Community Cloud deployment that reads the scheduled runs' data from the private `state` branch with a read-only token
 - **Run health monitoring**: every run is bracketed by `RUN_START` / `RUN_END` audit events with a run id; the dashboard warns when the last run is older than 13 hours, so a stopped schedule is never mistaken for "no new jobs"
 - **Credential redaction**: every audit and operational log line is scrubbed of SMTP credential values before it is written, since the logs are committed to the state branch
 - **CI pipeline**: GitHub Actions workflow runs the full test suite on every push and PR to `main`; live status badge in this README
@@ -148,7 +149,7 @@ Run all tests with:
 pytest tests/
 ```
 
-161 tests across nine modules covering the security-critical infrastructure, the database persistence layer, the dashboard data layer, the read API layer, keyword matching, and the scheduled-run lifecycle: rate limiter (6 tests), robots.txt compliance checker (15 tests), audit logging / hard-stop detection (15 tests), database persistence / dedup / skip streaks (9 tests), dashboard data, log-parsing, and run-health layers (38 tests), API endpoints and validation (13 tests), input validation / sanitization (48 tests, one skipped by design for the SAP optional-title case), keyword matching, concurrent aggregation, and HTTP-error skip handling (10 tests), and run lifecycle / notify failure / credential redaction (7 tests). Tests use `unittest.mock` and per-test temporary databases to avoid real network or filesystem I/O and are safe to run without configuration.
+175 tests across ten modules covering the security-critical infrastructure, the database persistence layer, the dashboard data layer, the read API layer, keyword matching, and the scheduled-run lifecycle: rate limiter (6 tests), robots.txt compliance checker (15 tests), audit logging / hard-stop detection (15 tests), database persistence / dedup / skip streaks (9 tests), dashboard data, log-parsing, and run-health layers (38 tests), API endpoints and validation (13 tests), input validation / sanitization (48 tests, one skipped by design for the SAP optional-title case), keyword matching, concurrent aggregation, and HTTP-error skip handling (10 tests), run lifecycle / notify failure / credential redaction (7 tests), and the hosted dashboard's state-branch loader (14 tests). Tests use `unittest.mock` and per-test temporary databases to avoid real network or filesystem I/O and are safe to run without configuration.
 
 ### Optional: Pre-Commit Hook
 
@@ -228,9 +229,25 @@ How it stays safe and stateless:
 2. Same page, **Variables** tab. Add `MONITOR_ENABLED` with the value `true`.
 3. Actions tab, **Job Monitor**, **Run workflow** for a first manual run. It creates the `state` branch.
 
+### Hosted dashboard (Streamlit Community Cloud)
+
+Because the scheduled runs keep their data on the private copy's `state` branch, the dashboard can read it straight from GitHub. When `STATE_REPO` and `STATE_TOKEN` are set, `dashboard.py` downloads the database and logs from that branch (cached for 5 minutes, with a **Refresh data** button) instead of reading local files. Without them it reads local files exactly as before.
+
+1. **Create a read-only token.** GitHub, Settings, Developer settings, Personal access tokens, **Fine-grained tokens**, Generate new token. Repository access: **Only select repositories**, pick your private copy. Permissions: **Contents: Read-only** (nothing else). Pick an expiry date and note it; the dashboard shows an access error once it expires.
+2. **Deploy.** At [share.streamlit.io](https://share.streamlit.io), sign in with GitHub, allow access to private repos, then **Create app**: your private copy, branch `main`, main file `dashboard.py`. Under Advanced settings choose Python 3.11 and paste these secrets:
+
+   ```toml
+   STATE_REPO = "your-github-name/your-private-repo"
+   STATE_TOKEN = "github_pat_..."
+   ```
+
+3. **Keep it private.** In the app's Settings, Sharing, make the app private and invite only your own email. The dashboard shows your job search, so it should not be public.
+
+The token never leaves Streamlit's secret store: it is only sent to `api.github.com` in the request header, and error messages never include it. Requests are limited to three fixed file paths on the configured branch (see `utils/state_fetch.py`).
+
 ### Viewing the scheduled data locally
 
-Check out the `state` branch into a separate folder (here `private` is the git remote of your private copy), then point the dashboard at it:
+Alternatively, check out the `state` branch into a separate folder (here `private` is the git remote of your private copy), then point the dashboard at it:
 
 ```bash
 git fetch private state
@@ -274,6 +291,7 @@ JobMonitoring/
     date_utils.py             Date format converters per ATS
     schema.py                 Input validation and sanitization
     matching.py               Word-boundary keyword matching helpers
+    state_fetch.py            Downloads state-branch data for the hosted dashboard
   db/                         SQLite persistence layer
     schema.py                 Table definitions and init_db()
     repository.py             Reads/writes for jobs and skip streaks
@@ -282,7 +300,7 @@ JobMonitoring/
     schemas.py                Pydantic response/request models
     routes_jobs.py            GET /jobs and GET /jobs/{job_id}
     routes_companies.py       GET /companies and GET /companies/{name}
-  tests/                      Unit tests (161 total, 1 skipped by design)
+  tests/                      Unit tests (175 total, 1 skipped by design)
     test_rate_limiter.py      Rate limiter tests (6)
     test_robots_check.py      Robots.txt compliance tests (15)
     conftest.py               Shared fixture that isolates log files per test
@@ -293,6 +311,7 @@ JobMonitoring/
     test_schema.py            Input validation / sanitization tests (48)
     test_matching.py          Keyword matching / concurrency tests (10)
     test_run_lifecycle.py     Run lifecycle, notify failure, and credential redaction tests (7)
+    test_state_fetch.py       Hosted dashboard state-branch loader tests (14)
     fixtures/
       test_config.json        Repo-safe config fixture for load_config tests
   static/                     UI assets for the dashboard

@@ -5,6 +5,17 @@
 - A working UI (dashboard MVP is out; a fuller UI is the next step)
 - Many more things to come :D
 
+## [2026-11-13] v4.1 - Hosted Dashboard
+### Added
+- `utils/state_fetch.py` - Downloads the scheduled monitor's database and logs from the private repo's `state` branch via the GitHub contents API, configured by `STATE_REPO`, `STATE_TOKEN`, and optional `STATE_BRANCH`. Validates repo and branch names, only requests three fixed paths on `api.github.com`, writes files atomically, removes stale cached copies of files no longer on the branch, and never puts the token in an error message.
+- `dashboard.py` - Hosted mode: when `STATE_REPO` is set, data comes from the state branch (cached 5 minutes, with a Refresh data button and a "fetched at" caption) instead of local paths. Local mode is unchanged.
+- `tests/test_state_fetch.py` - 14 tests covering local-mode fallback, config validation (malformed repo, path traversal in branch, missing token), file layout, missing database and logs, auth and network errors never exposing the token, and atomic writes.
+- `README.md` - "Hosted dashboard (Streamlit Community Cloud)" setup: fine-grained read-only token, deployment, and keeping the app private.
+- `.env.example` - Commented `STATE_REPO` / `STATE_TOKEN` entries.
+
+### Changed
+- `ARCHITECTURE.md` - Dashboard section documents hosted mode and its security properties.
+
 ## [2026-11-13] v4.0 - Scheduler
 ### Added
 - `.github/workflows/monitor.yml` - Scheduled monitor run at 00:17 and 12:17 UTC plus manual dispatch. Guarded by the `MONITOR_ENABLED` repository variable so it only runs in the private deployment copy. Writes `config.json` and the optional custom handler module from Actions secrets at runtime (validating the config as JSON first) and deletes them afterwards. Restores the SQLite database and logs from a `state` branch before the run and commits them back with `if: always()`, so dedup state survives ephemeral runners and is saved even when the email fails. A `concurrency` group prevents overlapping runs without cancelling queued ones.
