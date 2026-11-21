@@ -27,6 +27,7 @@ import requests
 from utils.audit_log import setup_logging, log_audit_event, set_run_id
 from adapters.connectors import CONNECTORS
 from utils.robots_check import SkipReason
+from utils.rate_limiter import PAUSED_REASON, paused_platforms, reset_platform_circuits
 from utils.matching import keyword_matches, has_date_range_signal
 # for the sake of the ci pipeline, we allow the custom_handlers module to be missing (it is not included in the repo)
 try:
@@ -225,6 +226,8 @@ def log_company_result(result, all_new_jobs, all_ambiguous_jobs, db_path):
             operational_logger.warning("[%s] [SKIPPED] bot-detection triggered (Tier 3 hard-stop).", name)
         elif raw.reason == "http-error":
             operational_logger.warning("[%s] [SKIPPED] %s from the ATS, will retry next run.", name, raw.detail)
+        elif raw.reason == PAUSED_REASON:
+            operational_logger.warning("[%s] [SKIPPED] %s is paused this run (another company on it was throttled or blocked). No request sent.", name, ats)
         else:
             operational_logger.warning("[%s] [SKIPPED] rate-limited this cycle, will retry next run.", name)
         return
@@ -288,6 +291,10 @@ def run_cycle(companies, filters, db_path):
     all_new_jobs = []       # relevant new postings, across all companies
     all_ambiguous_jobs = [] # postings that passed keywords but location/date is unclear
 
+    # Every run starts with all platforms un-paused. See the circuit breaker
+    # notes in utils/rate_limiter.py.
+    reset_platform_circuits()
+
     # Fetch and classify every company concurrently. Each worker only reads
     # dedup state for its own name from the shared database; aggregation,
     # logging, and persistence happen in this main thread after each future
@@ -327,6 +334,16 @@ def run_cycle(companies, filters, db_path):
             operational_logger.info("  %s", job['link'])
             operational_logger.info("")
 
+    paused = paused_platforms()
+    if paused:
+        operational_logger.info("")
+        operational_logger.info("%d platform(s) paused this run:", len(paused))
+        for platform_name, info in sorted(paused.items()):
+            operational_logger.info(
+                "  - %s: %s on %s (HTTP %s)",
+                platform_name, info["reason"], info["triggered_by"], info["status"],
+            )
+
     flagged_companies = skip_tracker.get_flagged()
     if flagged_companies:
         operational_logger.info("")
@@ -348,6 +365,7 @@ def run_cycle(companies, filters, db_path):
         "ambiguous_count": len(all_ambiguous_jobs),
         "flagged_count": len(flagged_companies),
         "companies_checked": len(companies),
+        "paused_platforms": sorted(paused),
     }
 
 

@@ -5,6 +5,17 @@
 - A working UI (dashboard MVP is out; a fuller UI is the next step)
 - Many more things to come :D
 
+## [2026-11-21] v4.2 - Platform Circuit Breaker
+### Added
+- `utils/rate_limiter.py` - Per-run platform circuit breaker. When one company exhausts its throttle retries or trips the Tier 3 bot-detection hard stop, that platform is paused for the rest of the run: other companies on it are skipped with reason `platform-paused` and send no request, and companies already backing off stop before their next retry. One `PLATFORM_PAUSED` audit event is written per platform. Exhausted network errors do not trip it. `reset_platform_circuits()` clears pauses at the start of every run.
+- `utils/rate_limiter.py` - `PlatformConfig.max_concurrent_requests`, a cap on requests in flight at once across all companies on a platform. Workday is set to 2, since its 30+ tenants share a few hosts behind one bot filter and the per-minute cap is counted per company.
+- `utils/rate_limiter.py` - A Workday redirect to its maintenance or outage page is treated as service unavailable (retried, then skipped) instead of failing as a JSON parse error.
+- `job_monitor.py` - Paused platforms are listed in the run summary and in `RUN_END` as `paused_platforms`. Paused companies get their own `[SKIPPED]` log line and still count toward the skip streak, so the flagged-companies email is unchanged.
+- `tests/test_rate_limiter.py` - 11 tests for the breaker, concurrency cap, maintenance redirect, and status-code audit fields. `tests/test_run_lifecycle.py` - 1 test that pauses are reported and reset between runs. `tests/conftest.py` - autouse fixture that resets pauses between tests.
+
+### Changed
+- `utils/rate_limiter.py` - `TIER3_HARDSTOP` audit events now record the HTTP `status`, `Retry-After`, and `redirected_to` (when the request was redirected), and `RateLimitExceeded` carries the last status code, so a block (403), throttle (429), outage (503), or maintenance redirect can be told apart from the logs alone.
+
 ## [2026-11-13] v4.1 - Hosted Dashboard
 ### Added
 - `utils/state_fetch.py` - Downloads the scheduled monitor's database and logs from the private repo's `state` branch via the GitHub contents API, configured by `STATE_REPO`, `STATE_TOKEN`, and optional `STATE_BRANCH`. Validates repo and branch names, only requests three fixed paths on `api.github.com`, writes files atomically, removes stale cached copies of files no longer on the branch, and never puts the token in an error message.

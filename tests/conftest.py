@@ -7,8 +7,19 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from utils import audit_log
+from utils.rate_limiter import reset_platform_circuits
 
 _LOGGER_NAMES = ("job_monitor.audit", "job_monitor.operational")
+
+
+@pytest.fixture(autouse=True)
+def clean_platform_circuits():
+    # Platform pauses live at module level in utils/rate_limiter.py, so a
+    # test that trips the breaker would otherwise pause that platform for
+    # every test after it.
+    reset_platform_circuits()
+    yield
+    reset_platform_circuits()
 
 
 @pytest.fixture

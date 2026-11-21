@@ -62,6 +62,33 @@ def test_run_start_and_end_share_a_run_id(isolated_logs, tmp_path, monkeypatch):
     print("PASS: every event in a run carries the same run id, bracketed by RUN_START/RUN_END")
 
 
+def test_paused_platform_is_reported_and_reset_between_runs(isolated_logs, tmp_path):
+    # One company trips the Workday breaker; the run must log the pause in
+    # RUN_END and the next run must start with Workday un-paused.
+    from utils import rate_limiter
+
+    config = _write_config(tmp_path, [{"name": "Acme", "ats": "workday", "workday_url": "https://x.test"}])
+
+    def tripping_connector(company):
+        rate_limiter._pause_platform("workday", company["name"], "throttle_exhausted", 429)
+        return []
+
+    with patch("job_monitor.CONNECTORS", {"workday": tripping_connector}), \
+         patch("job_monitor.send_notification", lambda *a, **k: None):
+        job_monitor.main(["--config", config, "--db-path", str(tmp_path / "t.db")])
+
+    events = _audit_events(isolated_logs)
+    assert any(e["event"] == "PLATFORM_PAUSED" and e["platform"] == "workday" for e in events)
+    assert events[-1]["paused_platforms"] == ["workday"]
+
+    with patch("job_monitor.CONNECTORS", {"workday": lambda company: []}), \
+         patch("job_monitor.send_notification", lambda *a, **k: None):
+        job_monitor.main(["--config", config, "--db-path", str(tmp_path / "t.db")])
+
+    assert _audit_events(isolated_logs)[-1]["paused_platforms"] == []
+    print("PASS: platform pauses are reported in RUN_END and cleared for the next run")
+
+
 def test_github_run_id_is_reused(monkeypatch):
     monkeypatch.setenv("GITHUB_RUN_ID", "987654")
     monkeypatch.setenv("GITHUB_RUN_ATTEMPT", "2")
